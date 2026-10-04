@@ -58,7 +58,10 @@ assert.equal(/noindex|noai|notraining|nosnippet/i.test(home.text), false);
 assert.equal(/<script[\s>]/i.test(home.text), false);
 assert.equal(/google-analytics|gtag\(|googletagmanager|plausible|pixel/i.test(home.text), false);
 assert.match(home.text, /One public list\. Two posts: need and have\. No accounts\./);
-assert.match(home.text, /A public need and have list/);
+assert.match(
+  home.text,
+  /<h1>Needhave <span class="product">A public need and have list\.<\/span><\/h1>/,
+);
 assert.match(home.text, /Examples, not live posts/);
 assert.equal((home.text.match(/<p class="stamp">Example<\/p>/g) || []).length, 2);
 assert.match(home.text, /If you build agents/);
