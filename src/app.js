@@ -28,6 +28,7 @@ function html(body) {
     headers: {
       "content-type": "text/html; charset=utf-8",
       link: SERVICE_DESC_LINK,
+      "x-robots-tag": "index, follow",
     },
   });
 }
