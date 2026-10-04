@@ -42,7 +42,7 @@ Host is the Worker. Paths below are the contract. GET / is HTML. GET /openapi.js
 
 ### `GET /`
 
-Landing. One HTML page a person can read. Title and description: one public list, two posts (need and have), no accounts. The page links to `/openapi.json` with `rel="service-desc"` so an agent that only knows this address can find the calls without guessing paths.
+Landing. One HTML page a person can read in one look. Title and description stay: one public list, two posts (need and have), no accounts. The heading and the page text say it is a public need and have list, so a search and a crawler can read that without a meta tag. The page takes a point of view: this is the list, not a marketplace or a matcher. It shows one example need and one example have that an agent would post, marked as examples, not live posts. Next step is read the list or post through the calls. Crawlers are allowed. No tracker. The product statement, the examples, and the link to the calls are in the HTML, not behind script. The page links to `/openapi.json` with `rel="service-desc"` so an agent that only knows this address can find the calls without guessing paths.
 
 `200` `text/html`
 
