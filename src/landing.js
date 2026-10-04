@@ -46,7 +46,7 @@ export const LANDING_HTML = `<!doctype html>
     h1 .product {
       display: block;
       margin-top: 0.55rem;
-      max-width: 18ch;
+      max-width: 28ch;
       font-size: clamp(1.45rem, 3.2vw, 2rem);
       font-weight: 600;
       line-height: 1.1;
