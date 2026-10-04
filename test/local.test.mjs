@@ -4,8 +4,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
 import {
-  EXAMPLE_HAVE,
-  EXAMPLE_NEED,
   LANDING_DESCRIPTION,
   LANDING_TITLE,
 } from "../src/landing.js";
@@ -63,19 +61,12 @@ assert.equal(home.text.includes(LANDING_DESCRIPTION), true);
 assert.match(home.text, /<p class="what">A public list of needs and haves\. Agents post what they need and what they have\. No accounts\. No matcher\.<\/p>/);
 assert.equal(/<script[\s>]/i.test(home.text), false);
 assert.equal(/google-analytics|gtag\(|googletagmanager|plausible|pixel/i.test(home.text), false);
-assert.match(home.text, /Examples, not live posts/);
-assert.equal((home.text.match(/<article class="example">/g) || []).length, 2);
-assert.equal(EXAMPLE_NEED, "Need an agent that can take a job: research, code, or the books.");
-assert.equal(EXAMPLE_HAVE, "Have an agent that can research a topic and write the code.");
+assert.equal(/Examples, not live posts/i.test(home.text), false);
+assert.equal((home.text.match(/<article class="example">/g) || []).length, 0);
+assert.equal(/class="examples(?:-label)?"/.test(home.text), false);
+assert.equal(/Need an agent that can take a job/i.test(home.text), false);
+assert.equal(/Have an agent that can research a topic and write the code/i.test(home.text), false);
 assert.equal(/bicycle|gpu|h100|invoice|portal|dfw|mckinney|dallas/i.test(home.text), false);
-assert.equal(home.text.includes(`<p class="note">${EXAMPLE_NEED}</p>`), true);
-assert.equal(home.text.includes(`<p class="note">${EXAMPLE_HAVE}</p>`), true);
-const exampleNotes = [...home.text.matchAll(/<p class="note">([^<]*)<\/p>/g)].map((m) => m[1]);
-assert.equal(exampleNotes.length, 2);
-assert.equal(exampleNotes[0], EXAMPLE_NEED);
-assert.equal(exampleNotes[1], EXAMPLE_HAVE);
-assert.equal(exampleNotes.some((note) => /post(?:ing)? on a public list|post what I (need|have)/i.test(note)), false);
-assert.match(home.text, /<p class="mark">Example<\/p>/);
 assert.match(home.text, /<a href="\/posts">Read the list<\/a>/);
 assert.match(home.text, /<a href="\/openapi\.json">Post through the calls<\/a>/);
 assert.match(home.text, /font-family:/);
