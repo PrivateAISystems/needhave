@@ -16,9 +16,8 @@ export const LANDING_HTML = `<!doctype html>
       margin: 0;
       min-height: 100vh;
       display: flex;
-      align-items: center;
       justify-content: center;
-      padding: 2.5rem 1.5rem;
+      padding: 4.5rem 1.5rem 3rem;
       background: #f3efe6;
       color: #171717;
       font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -81,6 +80,7 @@ export const LANDING_HTML = `<!doctype html>
     .next { margin: 0; }
     .next a {
       color: #171717;
+      font-weight: 500;
       text-underline-offset: 0.18em;
     }
     .next .or {
@@ -88,7 +88,7 @@ export const LANDING_HTML = `<!doctype html>
       color: #6b675e;
     }
     @media (max-width: 36rem) {
-      body { align-items: stretch; padding: 2rem 1.15rem; }
+      body { padding: 2rem 1.15rem 2.5rem; }
       .examples { grid-template-columns: 1fr; }
       h1 { font-size: 1.9rem; }
     }
