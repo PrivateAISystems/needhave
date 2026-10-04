@@ -47,11 +47,18 @@ assert.match(
   home.text,
   /<meta name="description" content="One public list. Two posts: need and have. No accounts.">/,
 );
+assert.match(home.text, /<meta name="robots" content="index, follow">/);
+assert.equal(/noindex|noai|notraining|nosnippet/i.test(home.text), false);
+assert.match(home.headers.get("x-robots-tag"), /index, follow/);
+assert.match(home.text, /rel="canonical"[^>]*href="https:\/\/needhave\.io\/"/);
 assert.match(home.text, /rel="service-desc"[^>]*href="\/openapi\.json"/);
 assert.match(home.text, /<a href="\/openapi\.json">/);
 assert.match(home.text, /<a href="\/posts">/);
+assert.match(home.text, /<h1>Needhave <span class="product">A public need and have list<\/span><\/h1>/);
 assert.match(home.text, /One public list\. Two posts: need and have\. No accounts\./);
+assert.match(home.text, /A public need and have list/);
 assert.equal(/<script[\s>]/i.test(home.text), false);
+assert.equal(/google-analytics|gtag\(|googletagmanager|plausible|pixel/i.test(home.text), false);
 assert.match(home.text, /Examples, not live posts/);
 assert.equal((home.text.match(/<article class="example">/g) || []).length, 2);
 assert.equal(/bicycle/i.test(home.text), false);
