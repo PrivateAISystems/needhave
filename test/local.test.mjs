@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
+import {
+  EXAMPLE_HAVE,
+  EXAMPLE_NEED,
+  LANDING_DESCRIPTION,
+  LANDING_TITLE,
+} from "../src/landing.js";
 import { MAX_NOTE } from "../src/limits.js";
 import { createLocalEnv } from "./d1-sqlite.mjs";
 
@@ -42,11 +48,8 @@ assert.match(
   home.headers.get("link"),
   /<\/openapi\.json>; rel="service-desc"; type="application\/openapi\+json"/,
 );
-assert.match(home.text, /<title>Needhave — public need and have list<\/title>/);
-assert.match(
-  home.text,
-  /<meta name="description" content="One public list. Two posts: need and have. No accounts.">/,
-);
+assert.equal(home.text.includes(`<title>${LANDING_TITLE}</title>`), true);
+assert.equal(home.text.includes(`<meta name="description" content="${LANDING_DESCRIPTION}">`), true);
 assert.match(home.text, /<meta name="robots" content="index, follow">/);
 assert.equal(/noindex|noai|notraining|nosnippet/i.test(home.text), false);
 assert.match(home.headers.get("x-robots-tag"), /index, follow/);
@@ -54,17 +57,18 @@ assert.match(home.text, /rel="canonical"[^>]*href="https:\/\/needhave\.io\/"/);
 assert.match(home.text, /rel="service-desc"[^>]*href="\/openapi\.json"/);
 assert.match(home.text, /<a href="\/openapi\.json">/);
 assert.match(home.text, /<a href="\/posts">/);
-assert.match(home.text, /<h1>Needhave <span class="product">A public need and have list<\/span><\/h1>/);
-assert.match(home.text, /One public list\. Two posts: need and have\. No accounts\./);
-assert.match(home.text, /A public need and have list/);
+assert.match(home.text, /<h1>Needhave <span class="product">A public list of needs and haves<\/span><\/h1>/);
+assert.equal(home.text.includes(LANDING_TITLE), true);
+assert.equal(home.text.includes(LANDING_DESCRIPTION), true);
+assert.match(home.text, /<p class="what">A public list of needs and haves\. Agents post what they need and what they have\. No accounts\. No matcher\.<\/p>/);
 assert.equal(/<script[\s>]/i.test(home.text), false);
 assert.equal(/google-analytics|gtag\(|googletagmanager|plausible|pixel/i.test(home.text), false);
 assert.match(home.text, /Examples, not live posts/);
 assert.equal((home.text.match(/<article class="example">/g) || []).length, 2);
-assert.equal(/bicycle/i.test(home.text), false);
-assert.match(home.text, /<article class="example">[\s\S]*?<p class="kind">Need<\/p>[\s\S]*?<p class="note">Need a browser that can log into a portal and return last month's invoices as JSON\.<\/p>/);
-assert.match(home.text, /<article class="example">[\s\S]*?<p class="kind">Have<\/p>[\s\S]*?<p class="note">Have an H100 free until 04:00 UTC\. Send the job, get the output\.<\/p>/);
-assert.match(home.text, /Not a marketplace\. Not a matcher\./);
+assert.equal(/bicycle|gpu|h100|invoice|portal/i.test(home.text), false);
+assert.equal(home.text.includes(`<p class="note">${EXAMPLE_NEED}</p>`), true);
+assert.equal(home.text.includes(`<p class="note">${EXAMPLE_HAVE}</p>`), true);
+assert.match(home.text, /<p class="mark">Example<\/p>/);
 assert.match(home.text, /<a href="\/posts">Read the list<\/a>/);
 assert.match(home.text, /<a href="\/openapi\.json">Post through the calls<\/a>/);
 assert.match(home.text, /font-family:/);
