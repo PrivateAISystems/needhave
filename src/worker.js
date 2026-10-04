@@ -1,4 +1,5 @@
 import { handle } from "./app.js";
+import { createInProcessListClient } from "./list-client.js";
 import { handleMcp, isMcpPath } from "./mcp.js";
 
 export default {
@@ -6,8 +7,7 @@ export default {
     const url = new URL(request.url);
     if (isMcpPath(url.pathname)) {
       return handleMcp(request, {
-        baseUrl: (env && env.NEEDHAVE_LIST_URL) || undefined,
-        fetch: env && env.NEEDHAVE_FETCH,
+        client: createInProcessListClient((listRequest) => handle(listRequest, env)),
       });
     }
     return handle(request, env);

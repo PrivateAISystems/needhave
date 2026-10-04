@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
 import { LANDING_HTML } from "../src/landing.js";
-import { LIVE_LIST } from "../src/list-client.js";
+import { createListClient, LIVE_LIST } from "../src/list-client.js";
 import { MAX_NOTE } from "../src/limits.js";
 import { handleMcp, TOOLS } from "../src/mcp.js";
 import worker from "../src/worker.js";
@@ -15,16 +15,6 @@ import { createLocalEnv } from "./d1-sqlite.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const schema = readFileSync(join(root, "schema.sql"), "utf8");
 const env = createLocalEnv(schema);
-
-function localFetch(input, init) {
-  const request = input instanceof Request ? input : new Request(input, init);
-  return handle(request, env);
-}
-
-const mcpEnv = {
-  NEEDHAVE_LIST_URL: "http://needhave.local",
-  NEEDHAVE_FETCH: localFetch,
-};
 
 async function mcp(body, { method = "POST", path = "/mcp", headers = {} } = {}) {
   const request = new Request(`http://needhave.local${path}`, {
@@ -36,7 +26,7 @@ async function mcp(body, { method = "POST", path = "/mcp", headers = {} } = {}) 
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  const response = await worker.fetch(request, mcpEnv);
+  const response = await worker.fetch(request, env);
   const text = await response.text();
   let json = null;
   try {
@@ -94,7 +84,52 @@ const defaultClient = await handleMcp(
 assert.equal(defaultClient.status, 200);
 assert.match((await defaultClient.json()).result.instructions, /https:\/\/needhave\.io/);
 assert.equal(LIVE_LIST, "https://needhave.io");
-ok("MCP calls the live list at https://needhave.io by default");
+assert.equal(createListClient().baseUrl, LIVE_LIST);
+const stdioSource = readFileSync(join(root, "src/mcp-stdio.js"), "utf8");
+assert.match(stdioSource, /NEEDHAVE_LIST_URL \|\| LIVE_LIST/);
+assert.equal(stdioSource.includes("createInProcessListClient"), false);
+ok("local stdio client stays pointed at the live list");
+
+const htmlList = createListClient({
+  fetch: async () =>
+    new Response("<!DOCTYPE html><html><body>needhave</body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    }),
+});
+const htmlResult = await htmlList.listPosts();
+assert.deepEqual(htmlResult.data, { error: "bad_list_response" });
+ok("HTTP list client reports bad_list_response when the body is not JSON");
+
+const originalFetch = globalThis.fetch;
+let fetchedLive = false;
+globalThis.fetch = async (input, init) => {
+  const url = String(input instanceof Request ? input.url : input);
+  if (url.includes("needhave.io")) {
+    fetchedLive = true;
+    return new Response("<!DOCTYPE html><html><body>self-fetch</body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }
+  if (typeof originalFetch === "function") return originalFetch(input, init);
+  throw new Error(`unexpected fetch: ${url}`);
+};
+try {
+  const inProcess = await mcp({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "list_posts", arguments: {} },
+  });
+  assert.equal(inProcess.status, 200);
+  assert.deepEqual(JSON.parse(inProcess.json.result.content[0].text), { posts: [] });
+  assert.equal(inProcess.json.result.isError, false);
+  assert.equal(fetchedLive, false);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+ok("Worker MCP calls the list handlers in process and does not fetch needhave.io");
 
 const init = await mcp({
   jsonrpc: "2.0",
