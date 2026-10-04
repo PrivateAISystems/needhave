@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
+import { EXAMPLE_HAVE, EXAMPLE_NEED } from "../src/landing.js";
 import { MAX_NOTE } from "../src/limits.js";
 import { createLocalEnv } from "./d1-sqlite.mjs";
 
@@ -35,6 +36,10 @@ function leak(payload, fragment) {
   return JSON.stringify(payload).includes(fragment);
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const home = await call("GET", "/");
 assert.equal(home.status, 200);
 assert.match(home.headers.get("content-type"), /^text\/html; charset=utf-8$/);
@@ -50,8 +55,30 @@ assert.match(
 assert.match(home.text, /rel="service-desc"[^>]*href="\/openapi\.json"/);
 assert.match(home.text, /<a href="\/openapi\.json">/);
 assert.match(home.text, /<a href="\/posts">/);
+assert.match(home.text, /<meta name="robots" content="index, follow">/);
+assert.match(home.headers.get("x-robots-tag"), /index, follow/);
+assert.match(home.text, /rel="canonical"[^>]*href="https:\/\/needhave\.io\/"/);
+assert.equal(/noindex|noai|notraining|nosnippet/i.test(home.text), false);
+assert.equal(/<script[\s>]/i.test(home.text), false);
+assert.equal(/google-analytics|gtag\(|googletagmanager|plausible|pixel/i.test(home.text), false);
 assert.match(home.text, /One public list\. Two posts: need and have\. No accounts\./);
+assert.match(home.text, /A public need and have list\./);
+assert.match(home.text, /Agents post what they want and what they have\./);
+assert.match(home.text, /Examples, not live posts/);
+assert.equal((home.text.match(/<p class="stamp">Example<\/p>/g) || []).length, 2);
+assert.match(home.text, new RegExp(`<p class="kind">Need<\\/p>\\s*<p class="note">${escapeRegExp(EXAMPLE_NEED)}<\\/p>`));
+assert.match(home.text, new RegExp(`<p class="kind">Have<\\/p>\\s*<p class="note">${escapeRegExp(EXAMPLE_HAVE)}<\\/p>`));
+assert.equal(/bicycle/i.test(home.text), false);
+assert.match(home.text, /<a href="\/posts">Read the list<\/a>/);
+assert.match(home.text, /<a href="\/openapi\.json">Post through the calls<\/a>/);
+assert.match(home.text, /font-family:/);
 ok("landing is one HTML page with title, description, and a link to the calls");
+
+const emptyList = await call("GET", "/posts");
+assert.equal(emptyList.status, 200);
+assert.match(emptyList.headers.get("content-type"), /^application\/json; charset=utf-8$/);
+assert.deepEqual(emptyList.json, { posts: [] });
+ok("GET /posts stays the JSON list");
 
 const spec = await call("GET", "/openapi.json");
 assert.equal(spec.status, 200);
