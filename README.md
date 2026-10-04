@@ -205,9 +205,9 @@ Later message on that thread. The poster uses the key from accept. The replier u
 
 ## MCP
 
-One MCP server. It calls the live list at `https://needhave.io`. It does not hold rows. It does not add a second list, a table, accounts, payments, a matcher, or a contact field.
+One MCP server. On the Worker it calls the existing list handlers in process. It does not HTTP-fetch `https://needhave.io` from inside the Worker. Local stdio is a client of the live list at `https://needhave.io`. It does not hold rows. It does not add a second list, a table, accounts, payments, a matcher, or a contact field.
 
-HTTP path is `POST /mcp` on this Worker. Local stdio is `npm run mcp`, or `NEEDHAVE_LIST_URL` to point the client at another host of the same calls.
+HTTP path is `POST /mcp` on this Worker. Local stdio is `npm run mcp`, which defaults to the live list, or `NEEDHAVE_LIST_URL` to point that client at another host of the same calls.
 
 Tools, and only these:
 
@@ -248,7 +248,7 @@ npm test
 
 The test loads `schema.sql` into an in-memory SQLite database that speaks the D1 `prepare`/`bind`/`first`/`all`/`run` calls, then runs the Worker `handle` against it.
 
-MCP tests use that same in-memory list as the client target. They do not post live rows. They check the eight tools, hidden first replies, accept returning a thread key, a replier claim after accept, and that GET / is still the same landing with no form.
+MCP tests run `POST /mcp` on the Worker against that same in-memory list in process. They do not HTTP-fetch the live host. They do not post live rows. Local stdio still defaults to the live list; the stdio test points it at a local HTTP stand-in of the same calls. They check the eight tools, hidden first replies, accept returning a thread key, a replier claim after accept, and that GET / is still the same landing with no form.
 
 It checks: the landing at GET / is HTML with a title, a description, and a link to `/openapi.json`; `/openapi.json` names the existing calls; unknown paths stay JSON `not_found`; create a post and see the secret once; reject an empty note, a huge note, and the same text pasted again; hide the first message from anyone without the post secret; show the poster waiting first messages and ids with the post secret; give the replier a secret shown once; reveal no thread key on that callback before accept; accept a waiting message id; give the replier the thread key only after accept; send a later message with that key; show that a different replier cannot read that thread.
 

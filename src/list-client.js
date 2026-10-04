@@ -1,7 +1,18 @@
 export const LIVE_LIST = "https://needhave.io";
+export const IN_PROCESS_LIST = "http://needhave.local";
 
 function listUrl(baseUrl, path) {
   return new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+}
+
+export function createInProcessListClient(dispatch) {
+  return createListClient({
+    baseUrl: IN_PROCESS_LIST,
+    fetch(input, init) {
+      const request = input instanceof Request ? input : new Request(input, init);
+      return dispatch(request);
+    },
+  });
 }
 
 export function createListClient({
