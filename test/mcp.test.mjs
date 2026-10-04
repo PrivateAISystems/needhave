@@ -1,0 +1,396 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { handle } from "../src/app.js";
+import { LANDING_HTML } from "../src/landing.js";
+import { LIVE_LIST } from "../src/list-client.js";
+import { MAX_NOTE } from "../src/limits.js";
+import { handleMcp, TOOLS } from "../src/mcp.js";
+import worker from "../src/worker.js";
+import { createLocalEnv } from "./d1-sqlite.mjs";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const schema = readFileSync(join(root, "schema.sql"), "utf8");
+const env = createLocalEnv(schema);
+
+function localFetch(input, init) {
+  const request = input instanceof Request ? input : new Request(input, init);
+  return handle(request, env);
+}
+
+const mcpEnv = {
+  NEEDHAVE_LIST_URL: "http://needhave.local",
+  NEEDHAVE_FETCH: localFetch,
+};
+
+async function mcp(body, { method = "POST", path = "/mcp", headers = {} } = {}) {
+  const request = new Request(`http://needhave.local${path}`, {
+    method,
+    headers: {
+      accept: "application/json, text/event-stream",
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      ...headers,
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const response = await worker.fetch(request, mcpEnv);
+  const text = await response.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = text;
+  }
+  return { status: response.status, json, text, headers: response.headers };
+}
+
+async function callTool(name, args = {}, id = 1) {
+  const response = await mcp({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name, arguments: args },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.jsonrpc, "2.0");
+  assert.equal(response.json.id, id);
+  const payload = JSON.parse(response.json.result.content[0].text);
+  return {
+    isError: Boolean(response.json.result.isError),
+    data: payload,
+    raw: response.json,
+  };
+}
+
+function ok(label) {
+  console.log(`ok ${label}`);
+}
+
+function leak(payload, fragment) {
+  return JSON.stringify(payload).includes(fragment);
+}
+
+assert.equal(/<form[\s>]/i.test(LANDING_HTML), false);
+assert.equal(LANDING_HTML.includes("/mcp"), false);
+ok("landing page is unchanged and has no form");
+
+const home = await worker.fetch(new Request("http://needhave.local/"), env);
+assert.equal(home.status, 200);
+assert.match(home.headers.get("content-type"), /^text\/html/);
+const homeText = await home.text();
+assert.equal(homeText, LANDING_HTML);
+ok("GET / still serves the same landing HTML");
+
+const defaultClient = await handleMcp(
+  new Request("http://needhave.local/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+  }),
+);
+assert.equal(defaultClient.status, 200);
+assert.match((await defaultClient.json()).result.instructions, /https:\/\/needhave\.io/);
+assert.equal(LIVE_LIST, "https://needhave.io");
+ok("MCP calls the live list at https://needhave.io by default");
+
+const init = await mcp({
+  jsonrpc: "2.0",
+  id: 1,
+  method: "initialize",
+  params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "0" } },
+});
+assert.equal(init.status, 200);
+assert.match(init.headers.get("content-type"), /^application\/json/);
+assert.equal(init.json.result.protocolVersion, "2025-03-26");
+assert.equal(init.json.result.serverInfo.name, "needhave");
+assert.deepEqual(init.json.result.capabilities, { tools: { listChanged: false } });
+ok("initialize");
+
+const initialized = await mcp({ jsonrpc: "2.0", method: "notifications/initialized" });
+assert.equal(initialized.status, 202);
+ok("initialized notification is 202");
+
+const listed = await mcp({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+assert.equal(listed.status, 200);
+const names = listed.json.result.tools.map((tool) => tool.name);
+assert.deepEqual(names, [
+  "list_posts",
+  "create_need",
+  "create_have",
+  "read_post",
+  "write_first_reply",
+  "accept_reply",
+  "read_thread",
+  "write_thread_message",
+]);
+assert.equal(TOOLS.length, 8);
+assert.equal(names.includes("list_waiting"), false);
+assert.equal(names.includes("create_account"), false);
+assert.equal(names.includes("pay"), false);
+assert.equal(names.includes("match"), false);
+ok("exactly the eight tools");
+
+const empty = await callTool("list_posts");
+assert.equal(empty.isError, false);
+assert.deepEqual(empty.data, { posts: [] });
+ok("list posts");
+
+const emptyNeed = await callTool("create_need", { note: "   " });
+assert.equal(emptyNeed.isError, true);
+assert.equal(emptyNeed.data.error, "empty_note");
+
+const hugeHave = await callTool("create_have", { note: "x".repeat(MAX_NOTE + 1) });
+assert.equal(hugeHave.isError, true);
+assert.equal(hugeHave.data.error, "huge_note");
+ok("drop empty and huge notes");
+
+const need = await callTool("create_need", {
+  note: "Need a working bicycle in town this week",
+});
+assert.equal(need.isError, false);
+assert.equal(need.data.kind, "need");
+assert.equal(need.data.note, "Need a working bicycle in town this week");
+assert.equal(need.data.id.length, 32);
+assert.equal(need.data.secret.length, 64);
+const postId = need.data.id;
+const postSecret = need.data.secret;
+
+const have = await callTool("create_have", {
+  note: "Have a spare tent someone can pick up tonight",
+});
+assert.equal(have.isError, false);
+assert.equal(have.data.kind, "have");
+assert.equal("secret" in have.data, true);
+
+const duplicate = await callTool("create_have", {
+  note: "Need a working bicycle in town this week",
+});
+assert.equal(duplicate.isError, true);
+assert.equal(duplicate.data.error, "duplicate_note");
+ok("create a need and a have; drop duplicate text");
+
+const posts = await callTool("list_posts");
+assert.equal(posts.data.posts.length, 2);
+assert.equal(posts.data.posts[0].id, have.data.id);
+assert.equal("secret" in posts.data.posts[0], false);
+assert.equal(leak(posts.data, postSecret), false);
+
+const one = await callTool("read_post", { id: postId });
+assert.equal(one.isError, false);
+assert.deepEqual(one.data, {
+  id: postId,
+  kind: "need",
+  note: "Need a working bicycle in town this week",
+});
+assert.equal("secret" in one.data, false);
+ok("read one post; secret is not on later reads");
+
+const reply = await callTool("write_first_reply", {
+  post_id: postId,
+  text: "I have a bike you can borrow on Thursday",
+});
+assert.equal(reply.isError, false);
+assert.equal(reply.data.hidden, true);
+assert.equal(reply.data.post_id, postId);
+assert.equal(reply.data.secret.length, 64);
+const replyId = reply.data.id;
+const replySecret = reply.data.secret;
+
+const otherReply = await callTool("write_first_reply", {
+  post_id: postId,
+  text: "Different replier offering a scooter instead",
+});
+assert.equal(otherReply.isError, false);
+const otherReplyId = otherReply.data.id;
+const otherReplySecret = otherReply.data.secret;
+
+const publicAgain = await callTool("read_post", { id: postId });
+assert.equal(leak(publicAgain.data, "Thursday"), false);
+assert.equal(leak(publicAgain.data, replySecret), false);
+const listedAgain = await callTool("list_posts");
+assert.equal(leak(listedAgain.data, "Thursday"), false);
+ok("first reply stays hidden from anyone without the post secret");
+
+const waitingWrong = await callTool("accept_reply", {
+  post_id: postId,
+  secret: "0".repeat(64),
+});
+assert.equal(waitingWrong.isError, true);
+assert.equal(waitingWrong.data.error, "bad_secret");
+assert.equal(leak(waitingWrong.data, "Thursday"), false);
+
+const waiting = await callTool("accept_reply", {
+  post_id: postId,
+  secret: postSecret,
+});
+assert.equal(waiting.isError, false);
+assert.equal(waiting.data.messages.length, 2);
+assert.equal(waiting.data.messages[0].id, replyId);
+assert.equal(waiting.data.messages[0].text, "I have a bike you can borrow on Thursday");
+assert.equal(waiting.data.messages[1].id, otherReplyId);
+assert.equal("thread_key" in waiting.data, false);
+assert.equal(leak(waiting.data, replySecret), false);
+ok("accept without message_id reads waiting first replies");
+
+const beforeAccept = await callTool("read_thread", {
+  message_id: replyId,
+  secret: replySecret,
+});
+assert.equal(beforeAccept.isError, false);
+assert.equal(beforeAccept.data.accepted, false);
+assert.equal("thread_key" in beforeAccept.data, false);
+ok("replier claim reveals no thread key before accept");
+
+const accepted = await callTool("accept_reply", {
+  post_id: postId,
+  secret: postSecret,
+  message_id: replyId,
+});
+assert.equal(accepted.isError, false);
+assert.equal(accepted.data.thread_key.length, 64);
+const threadKey = accepted.data.thread_key;
+ok("accept that reply with the post secret returns the thread key");
+
+const acceptedAgain = await callTool("accept_reply", {
+  post_id: postId,
+  secret: postSecret,
+  message_id: replyId,
+});
+assert.equal(acceptedAgain.isError, true);
+assert.equal(acceptedAgain.data.error, "already_accepted");
+
+const claimed = await callTool("read_thread", {
+  message_id: replyId,
+  secret: replySecret,
+});
+assert.equal(claimed.isError, false);
+assert.equal(claimed.data.accepted, true);
+assert.equal(claimed.data.thread_key, threadKey);
+assert.equal(claimed.data.post_id, postId);
+assert.equal(claimed.data.messages[0].text, "I have a bike you can borrow on Thursday");
+ok("replier reads the thread with the reply secret after accept");
+
+const later = await callTool("write_thread_message", {
+  thread_key: threadKey,
+  text: "Thursday at the library steps works",
+});
+assert.equal(later.isError, false);
+assert.equal(typeof later.data.id, "string");
+assert.equal(later.data.post_id, postId);
+
+const thread = await callTool("read_thread", { thread_key: threadKey });
+assert.equal(thread.isError, false);
+assert.equal(thread.data.messages.length, 2);
+assert.equal(thread.data.messages[1].text, "Thursday at the library steps works");
+ok("read a thread with its key and write the next message");
+
+const emptyLater = await callTool("write_thread_message", {
+  thread_key: threadKey,
+  text: "  ",
+});
+assert.equal(emptyLater.isError, true);
+assert.equal(emptyLater.data.error, "empty_note");
+
+const otherClaim = await callTool("read_thread", {
+  message_id: replyId,
+  secret: otherReplySecret,
+});
+assert.equal(otherClaim.isError, true);
+assert.equal(otherClaim.data.error, "bad_secret");
+assert.equal("thread_key" in otherClaim.data, false);
+
+const otherGuess = await callTool("read_thread", { thread_key: otherReplyId });
+assert.equal(otherGuess.isError, true);
+assert.equal(otherGuess.data.error, "not_found");
+assert.equal(leak(otherGuess.data, "library"), false);
+ok("a different replier cannot read that thread");
+
+const unknownTool = await mcp({
+  jsonrpc: "2.0",
+  id: 99,
+  method: "tools/call",
+  params: { name: "create_account", arguments: {} },
+});
+assert.equal(unknownTool.json.error.code, -32602);
+ok("unknown tools are rejected");
+
+const options = await mcp(undefined, { method: "OPTIONS" });
+assert.equal(options.status, 204);
+assert.equal(options.headers.get("access-control-allow-origin"), "*");
+
+const get = await mcp(undefined, { method: "GET" });
+assert.equal(get.status, 405);
+
+const slash = await mcp(
+  { jsonrpc: "2.0", id: 3, method: "ping" },
+  { path: "/mcp/" },
+);
+assert.equal(slash.status, 200);
+assert.deepEqual(slash.json.result, {});
+ok("HTTP /mcp is the streamable endpoint");
+
+const stillList = await worker.fetch(new Request("http://needhave.local/posts"), env);
+assert.equal(stillList.status, 200);
+assert.match(stillList.headers.get("content-type"), /^application\/json/);
+const stillListJson = await stillList.json();
+assert.equal(stillListJson.posts.length, 2);
+assert.equal("secret" in stillListJson.posts[0], false);
+ok("the Worker still serves the same JSON list");
+
+const stdio = await new Promise((resolve, reject) => {
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const raw = Buffer.concat(chunks);
+    const headers = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === "string") headers[key] = value;
+    }
+    const request = new Request(`http://needhave.local${req.url}`, {
+      method: req.method,
+      headers,
+      body: req.method === "GET" || req.method === "HEAD" ? undefined : raw,
+    });
+    const response = await handle(request, env);
+    res.writeHead(response.status, {
+      "content-type": response.headers.get("content-type") || "application/json",
+    });
+    res.end(await response.text());
+  });
+  server.listen(0, "127.0.0.1", () => {
+    const { port } = server.address();
+    const child = spawn(process.execPath, [join(root, "src/mcp-stdio.js")], {
+      cwd: root,
+      env: { ...process.env, NEEDHAVE_LIST_URL: `http://127.0.0.1:${port}` },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let out = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      out += chunk;
+      if (out.includes("\n")) {
+        child.stdin.end();
+      }
+    });
+    child.on("error", reject);
+    child.on("close", () => {
+      server.close();
+      resolve(out);
+    });
+    child.stdin.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`,
+    );
+  });
+});
+
+const stdioMessage = JSON.parse(stdio.trim().split("\n")[0]);
+assert.deepEqual(
+  stdioMessage.result.tools.map((tool) => tool.name),
+  names,
+);
+ok("stdio MCP server lists the same eight tools");
+
+console.log("all mcp calls passed");
