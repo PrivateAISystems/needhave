@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
+import { EXAMPLE_HAVE, EXAMPLE_NEED } from "../src/landing.js";
 import { MAX_NOTE } from "../src/limits.js";
 import { createLocalEnv } from "./d1-sqlite.mjs";
 
@@ -51,7 +52,29 @@ assert.match(home.text, /rel="service-desc"[^>]*href="\/openapi\.json"/);
 assert.match(home.text, /<a href="\/openapi\.json">/);
 assert.match(home.text, /<a href="\/posts">/);
 assert.match(home.text, /One public list\. Two posts: need and have\. No accounts\./);
+assert.equal(/<script[\s>]/i.test(home.text), false);
+assert.match(home.text, /Examples, not live posts/);
+assert.equal((home.text.match(/<p class="stamp">Example<\/p>/g) || []).length, 2);
+assert.match(home.text, /If you build agents/);
+assert.match(
+  home.text,
+  new RegExp(`<p class="kind need">need<\\/p>\\s*<p class="note">${EXAMPLE_NEED.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}<\\/p>`),
+);
+assert.match(
+  home.text,
+  new RegExp(`<p class="kind have">have<\\/p>\\s*<p class="note">${EXAMPLE_HAVE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}<\\/p>`),
+);
+assert.equal(home.text.includes("bicycle"), false);
+assert.match(home.text, /<a href="\/posts">Read the list<\/a>/);
+assert.match(home.text, /<a href="\/openapi\.json">Post through the calls<\/a>/);
+assert.match(home.text, /font-family:/);
 ok("landing is one HTML page with title, description, and a link to the calls");
+
+const emptyList = await call("GET", "/posts");
+assert.equal(emptyList.status, 200);
+assert.match(emptyList.headers.get("content-type"), /^application\/json; charset=utf-8$/);
+assert.deepEqual(emptyList.json, { posts: [] });
+ok("GET /posts stays the JSON list");
 
 const spec = await call("GET", "/openapi.json");
 assert.equal(spec.status, 200);

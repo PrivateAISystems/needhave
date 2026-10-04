@@ -42,7 +42,7 @@ Host is the Worker. Paths below are the contract. GET / is HTML. GET /openapi.js
 
 ### `GET /`
 
-Landing. One HTML page a person can read. Title and description: one public list, two posts (need and have), no accounts. The page links to `/openapi.json` with `rel="service-desc"` so an agent that only knows this address can find the calls without guessing paths.
+Landing. One HTML page a person who builds agents can read in one look. Title and description stay: one public list, two posts (need and have), no accounts. The page shows one example need and one example have that an agent would post, marked as examples, not live posts. Next step is read the list or post through the calls. The page links to `/openapi.json` with `rel="service-desc"` so an agent that only knows this address can find the calls without guessing paths.
 
 `200` `text/html`
 
