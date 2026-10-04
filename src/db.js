@@ -3,6 +3,9 @@ function isUniqueViolation(err) {
   return /UNIQUE|constraint/i.test(msg);
 }
 
+const MESSAGE_COLUMNS =
+  "id, post_id, text, secret_hash, thread_key, thread_key_hash, parent_id, role, created_at";
+
 export async function insertPost(db, row) {
   try {
     await db
@@ -40,12 +43,14 @@ export async function insertMessage(db, row) {
   try {
     await db
       .prepare(
-        "INSERT INTO messages (id, post_id, text, thread_key_hash, parent_id, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        `INSERT INTO messages (${MESSAGE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         row.id,
         row.post_id,
         row.text,
+        row.secret_hash,
+        row.thread_key,
         row.thread_key_hash,
         row.parent_id,
         row.role,
@@ -61,9 +66,7 @@ export async function insertMessage(db, row) {
 
 export async function findMessage(db, id) {
   return db
-    .prepare(
-      "SELECT id, post_id, text, thread_key_hash, parent_id, role, created_at FROM messages WHERE id = ?",
-    )
+    .prepare(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE id = ?`)
     .bind(id)
     .first();
 }
@@ -71,7 +74,7 @@ export async function findMessage(db, id) {
 export async function findAcceptForFirst(db, firstId) {
   return db
     .prepare(
-      "SELECT id, post_id, thread_key_hash, parent_id, role FROM messages WHERE parent_id = ? AND role = 'accept'",
+      `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE parent_id = ? AND role = 'accept'`,
     )
     .bind(firstId)
     .first();
@@ -80,10 +83,26 @@ export async function findAcceptForFirst(db, firstId) {
 export async function findAcceptByThreadHash(db, threadKeyHash) {
   return db
     .prepare(
-      "SELECT id, post_id, thread_key_hash, parent_id, role FROM messages WHERE thread_key_hash = ? AND role = 'accept'",
+      `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE thread_key_hash = ? AND role = 'accept'`,
     )
     .bind(threadKeyHash)
     .first();
+}
+
+export async function listWaitingFirsts(db, postId) {
+  const result = await db
+    .prepare(
+      `SELECT id, text FROM messages
+       WHERE post_id = ? AND role = 'first'
+         AND NOT EXISTS (
+           SELECT 1 FROM messages AS accept
+           WHERE accept.parent_id = messages.id AND accept.role = 'accept'
+         )
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .bind(postId)
+    .all();
+  return result.results ?? [];
 }
 
 export async function listLaterByThreadHash(db, threadKeyHash) {

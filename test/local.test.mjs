@@ -31,6 +31,10 @@ function ok(label) {
   console.log(`ok ${label}`);
 }
 
+function leak(payload, fragment) {
+  return JSON.stringify(payload).includes(fragment);
+}
+
 const created = await call("POST", "/posts", {
   kind: "need",
   note: "Need a working bicycle in town this week",
@@ -87,26 +91,72 @@ const first = await call("POST", `/posts/${postId}/messages`, {
 assert.equal(first.status, 201);
 assert.equal(first.json.hidden, true);
 assert.equal(first.json.post_id, postId);
-const firstId = first.json.id;
+assert.equal(typeof first.json.secret, "string");
+assert.equal(first.json.secret.length, 64);
+const replySecret = first.json.secret;
+assert.notEqual(replySecret, postSecret);
 
 const publicMessages = await call("GET", `/posts/${postId}/messages`);
 assert.equal(publicMessages.status, 200);
 assert.deepEqual(publicMessages.json.messages, []);
+assert.equal(leak(publicMessages.json, "Thursday"), false);
+assert.equal(leak(publicMessages.json, replySecret), false);
 
 const publicPost = await call("GET", `/posts/${postId}`);
-assert.equal(JSON.stringify(publicPost.json).includes("Thursday"), false);
-assert.equal(JSON.stringify(listed.json).includes("Thursday"), false);
+assert.equal(leak(publicPost.json, "Thursday"), false);
+assert.equal(leak(listed.json, "Thursday"), false);
+assert.equal(leak(publicPost.json, replySecret), false);
 
 const strangerList = await call("GET", "/posts");
-assert.equal(JSON.stringify(strangerList.json).includes("Thursday"), false);
-assert.equal(JSON.stringify(strangerList.json).includes(firstId), false);
-ok("first message stays hidden from everyone else");
+assert.equal(leak(strangerList.json, "Thursday"), false);
+assert.equal(leak(strangerList.json, replySecret), false);
+ok("first message stays hidden from anyone without the post secret");
+
+const beforeAccept = await call("POST", `/messages/${first.json.id}/thread`, {
+  secret: replySecret,
+});
+assert.equal(beforeAccept.status, 200);
+assert.equal(beforeAccept.json.accepted, false);
+assert.equal("thread_key" in beforeAccept.json, false);
+ok("replier callback reveals no thread key before accept");
+
+const waitingWrong = await call("POST", `/posts/${postId}/waiting`, {
+  secret: "0".repeat(64),
+});
+assert.equal(waitingWrong.status, 403);
+assert.equal(waitingWrong.json.error, "bad_secret");
+assert.equal(leak(waitingWrong.json, "Thursday"), false);
+assert.equal("messages" in waitingWrong.json, false);
 
 const otherReplier = await call("POST", `/posts/${postId}/messages`, {
   text: "Different replier offering a scooter instead",
 });
 assert.equal(otherReplier.status, 201);
-const otherFirstId = otherReplier.json.id;
+assert.equal(typeof otherReplier.json.secret, "string");
+const otherReplySecret = otherReplier.json.secret;
+assert.notEqual(otherReplySecret, replySecret);
+
+const waiting = await call("POST", `/posts/${postId}/waiting`, {
+  secret: postSecret,
+});
+assert.equal(waiting.status, 200);
+assert.equal(waiting.json.messages.length, 2);
+assert.equal(waiting.json.messages[0].text, "I have a bike you can borrow on Thursday");
+assert.equal(waiting.json.messages[1].text, "Different replier offering a scooter instead");
+assert.equal(typeof waiting.json.messages[0].id, "string");
+assert.equal(typeof waiting.json.messages[1].id, "string");
+assert.equal(leak(waiting.json, replySecret), false);
+assert.equal(leak(waiting.json, otherReplySecret), false);
+assert.equal(leak(waiting.json, postSecret), false);
+const firstId = waiting.json.messages[0].id;
+const otherFirstId = waiting.json.messages[1].id;
+assert.equal(firstId, first.json.id);
+assert.equal(otherFirstId, otherReplier.json.id);
+ok("poster reads waiting first messages and ids with the post secret");
+
+const stillPublic = await call("GET", `/posts/${postId}/messages`);
+assert.deepEqual(stillPublic.json.messages, []);
+assert.equal(leak(stillPublic.json, "scooter"), false);
 
 const wrongSecret = await call("POST", `/posts/${postId}/accept`, {
   secret: "0".repeat(64),
@@ -122,8 +172,8 @@ const accepted = await call("POST", `/posts/${postId}/accept`, {
 assert.equal(accepted.status, 201);
 assert.equal(typeof accepted.json.thread_key, "string");
 assert.equal(accepted.json.thread_key.length, 64);
-const threadKey = accepted.json.thread_key;
-ok("accept with the post secret and get one thread key");
+const posterThreadKey = accepted.json.thread_key;
+ok("poster accepts a waiting message id");
 
 const acceptedAgain = await call("POST", `/posts/${postId}/accept`, {
   secret: postSecret,
@@ -132,12 +182,30 @@ const acceptedAgain = await call("POST", `/posts/${postId}/accept`, {
 assert.equal(acceptedAgain.status, 409);
 assert.equal(acceptedAgain.json.error, "already_accepted");
 
+const afterAccept = await call("POST", `/messages/${firstId}/thread`, {
+  secret: replySecret,
+});
+assert.equal(afterAccept.status, 200);
+assert.equal(afterAccept.json.accepted, true);
+assert.equal(afterAccept.json.thread_key, posterThreadKey);
+assert.equal("secret" in afterAccept.json, false);
+const threadKey = afterAccept.json.thread_key;
+ok("replier receives the thread key with their secret after accept");
+
+const waitingAfter = await call("POST", `/posts/${postId}/waiting`, {
+  secret: postSecret,
+});
+assert.equal(waitingAfter.status, 200);
+assert.equal(waitingAfter.json.messages.length, 1);
+assert.equal(waitingAfter.json.messages[0].id, otherFirstId);
+assert.equal(leak(waitingAfter.json, "Thursday"), false);
+
 const later = await call("POST", `/threads/${threadKey}/messages`, {
   text: "Thursday at the library steps works",
 });
 assert.equal(later.status, 201);
 assert.equal(typeof later.json.id, "string");
-ok("send a later message with that key");
+ok("replier sends a later message with the key they received");
 
 const thread = await call("GET", `/threads/${threadKey}`);
 assert.equal(thread.status, 200);
@@ -148,13 +216,27 @@ assert.equal(thread.json.messages[0].text, "I have a bike you can borrow on Thur
 assert.equal(thread.json.messages[1].id, later.json.id);
 assert.equal(thread.json.messages[1].text, "Thursday at the library steps works");
 
-const stillPublic = await call("GET", `/posts/${postId}/messages`);
-assert.deepEqual(stillPublic.json.messages, []);
-assert.equal(JSON.stringify(stillPublic.json).includes("library"), false);
+const publicAfter = await call("GET", `/posts/${postId}/messages`);
+assert.deepEqual(publicAfter.json.messages, []);
+assert.equal(leak(publicAfter.json, "library"), false);
 
 const otherPublic = await call("GET", "/posts");
-assert.equal(JSON.stringify(otherPublic.json).includes("library"), false);
-assert.equal(JSON.stringify(otherPublic.json).includes(threadKey), false);
+assert.equal(leak(otherPublic.json, "library"), false);
+assert.equal(leak(otherPublic.json, threadKey), false);
+
+const otherBeforeTheirAccept = await call("POST", `/messages/${otherFirstId}/thread`, {
+  secret: otherReplySecret,
+});
+assert.equal(otherBeforeTheirAccept.status, 200);
+assert.equal(otherBeforeTheirAccept.json.accepted, false);
+assert.equal("thread_key" in otherBeforeTheirAccept.json, false);
+
+const otherWrongReply = await call("POST", `/messages/${firstId}/thread`, {
+  secret: otherReplySecret,
+});
+assert.equal(otherWrongReply.status, 403);
+assert.equal(otherWrongReply.json.error, "bad_secret");
+assert.equal("thread_key" in otherWrongReply.json, false);
 
 const otherGuess = await call("GET", `/threads/${otherFirstId}`);
 assert.equal(otherGuess.status, 404);
@@ -171,8 +253,8 @@ const otherAccept = await call("POST", `/posts/${postId}/accept`, {
 assert.equal(otherAccept.status, 403);
 
 const otherSeesOwnOnly = await call("GET", `/posts/${postId}`);
-assert.equal(JSON.stringify(otherSeesOwnOnly.json).includes("scooter"), false);
-assert.equal(JSON.stringify(otherSeesOwnOnly.json).includes("Thursday"), false);
+assert.equal(leak(otherSeesOwnOnly.json, "scooter"), false);
+assert.equal(leak(otherSeesOwnOnly.json, "Thursday"), false);
 ok("a different replier cannot read that thread");
 
 console.log("all local calls passed");

@@ -15,7 +15,9 @@ Two row kinds only.
 
 No accounts. No contact field. No short list. No payment. No edits. No deletes. A decision is a new row.
 
-The first message waits until the poster accepts. Accept writes one thread key shared by that poster and that replier. Later messages use that key. Other repliers never see that thread.
+The first message waits until the poster accepts. The poster reads waiting first messages with the post secret, including each message id, then accepts one. Those waiting messages stay hidden from anyone without the post secret.
+
+When a replier posts a first message they receive a secret of their own, shown once. That secret is how they call back for the thread key after the poster has accepted, and only then. Before accept, that call does not reveal the key. Accept writes one thread key shared by that poster and that replier. Later messages use that key. Other repliers never see that thread.
 
 A cheap filter drops empty notes, huge notes, and the same text pasted across posts. It does not approve anyone. The poster's accept does.
 
@@ -30,8 +32,9 @@ The same empty and huge rules apply to message text. Duplicate-text is a post ru
 ## Ids and secrets
 
 - Post id and message id: 16 random bytes, hex (32 characters).
-- Post secret and thread key: 32 random bytes, hex (64 characters).
-- Store `SHA-256` hex of the secret or thread key. Never store the plaintext. Never return a post secret after the create response.
+- Post secret, reply secret, and thread key: 32 random bytes, hex (64 characters).
+- Store `SHA-256` hex of the post secret and of the reply secret. Never store those plaintexts. Never return either secret after its create response.
+- The accept row stores the thread key so the replier callback can return the same key after accept. It also stores `SHA-256` hex of that key for thread lookup.
 
 ## Public calls
 
@@ -76,26 +79,60 @@ One public post. No secret. No messages.
 
 ### `POST /posts/:id/messages`
 
-First message from a replier. It stays hidden until the poster accepts, and it never appears on the public post calls.
+First message from a replier. Reply secret is in this response only. The message stays hidden from anyone without the post secret.
 
 ```json
 { "text": "I have a bike you can borrow on Thursday" }
 ```
 
-`201` `{ "id": "…", "post_id": "…", "hidden": true }`
+`201`
+
+```json
+{
+  "id": "…",
+  "post_id": "…",
+  "hidden": true,
+  "secret": "…64 hex…"
+}
+```
+
 `400` `{ "error": "empty_note" | "huge_note" }`
 `404` `{ "error": "not_found" }`
 
 ### `GET /posts/:id/messages`
 
-Public view of messages on a post. Always empty. Pending first messages and accepted threads are not listed here.
+Public view of messages on a post. Always empty. Waiting first messages and accepted threads are not listed here.
 
 `200` `{ "messages": [] }`
 `404` `{ "error": "not_found" }` if the post does not exist.
 
+### `POST /posts/:id/waiting`
+
+Poster reads waiting first messages with the post secret. Each item includes the message id so the poster can accept one. Accepted first messages are not listed.
+
+```json
+{ "secret": "…post secret…" }
+```
+
+`200`
+
+```json
+{
+  "messages": [
+    { "id": "…", "text": "…" }
+  ]
+}
+```
+
+Oldest first. No reply secrets. No thread key.
+
+`400` `{ "error": "bad_request" }`
+`403` `{ "error": "bad_secret" }`
+`404` `{ "error": "not_found" }`
+
 ### `POST /posts/:id/accept`
 
-Poster accepts one first message with the post secret. Inserts an accept row. Does not edit the first message. Returns one thread key.
+Poster accepts one first message with the post secret. Inserts an accept row. Does not edit the first message. Writes one thread key for that poster and that replier. The poster sees the key here. The replier does not; they use `POST /messages/:id/thread`.
 
 ```json
 { "secret": "…post secret…", "message_id": "…first message id…" }
@@ -106,6 +143,22 @@ Poster accepts one first message with the post secret. Inserts an accept row. Do
 `403` `{ "error": "bad_secret" }`
 `404` `{ "error": "not_found" }`
 `409` `{ "error": "already_accepted" }`
+
+### `POST /messages/:id/thread`
+
+Replier calls back with the reply secret shown when they posted the first message.
+
+```json
+{ "secret": "…reply secret…" }
+```
+
+Before accept: `200` `{ "accepted": false }` — no `thread_key` field.
+
+After accept: `200` `{ "accepted": true, "thread_key": "…64 hex…" }`
+
+`400` `{ "error": "bad_request" }`
+`403` `{ "error": "bad_secret" }`
+`404` `{ "error": "not_found" }`
 
 ### `GET /threads/:thread_key`
 
@@ -126,7 +179,7 @@ Read that thread. First message, then later messages, oldest first. Anyone witho
 
 ### `POST /threads/:thread_key/messages`
 
-Later message on that thread.
+Later message on that thread. The poster uses the key from accept. The replier uses the key from `POST /messages/:id/thread` after accept.
 
 ```json
 { "text": "Thursday at the library steps works" }
@@ -142,8 +195,8 @@ Later message on that thread.
 
 `messages.role`:
 
-- `first` — replier text on a post. `text` set. `thread_key_hash` and `parent_id` null.
-- `accept` — decision row. `parent_id` is the first message. `thread_key_hash` set. `text` null. At most one accept per first message.
+- `first` — replier text on a post. `text` and `secret_hash` set. `thread_key`, `thread_key_hash`, and `parent_id` null.
+- `accept` — decision row. `parent_id` is the first message. `thread_key` and `thread_key_hash` set. `text` and `secret_hash` null. At most one accept per first message.
 - `later` — text on the thread. `thread_key_hash` set.
 
 Insert only. `created_at` is Unix time in milliseconds.
@@ -158,7 +211,7 @@ npm test
 
 The test loads `schema.sql` into an in-memory SQLite database that speaks the D1 `prepare`/`bind`/`first`/`all`/`run` calls, then runs the Worker `handle` against it.
 
-It checks: create a post and see the secret once; reject an empty note, a huge note, and the same text pasted again; post a first message that stays hidden; accept with the post secret and get one thread key; send a later message with that key; show that a different replier cannot read that thread.
+It checks: create a post and see the secret once; reject an empty note, a huge note, and the same text pasted again; hide the first message from anyone without the post secret; show the poster waiting first messages and ids with the post secret; give the replier a secret shown once; reveal no thread key on that callback before accept; accept a waiting message id; give the replier the thread key only after accept; send a later message with that key; show that a different replier cannot read that thread.
 
 ## Out of this build
 

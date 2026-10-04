@@ -9,6 +9,7 @@ import {
   insertPost,
   listLaterByThreadHash,
   listPosts,
+  listWaitingFirsts,
 } from "./db.js";
 import { filterNote, trimNote } from "./filter.js";
 
@@ -33,6 +34,10 @@ async function readBody(request) {
 
 function publicPost(row) {
   return { id: row.id, kind: row.kind, note: row.note };
+}
+
+function readSecret(body) {
+  return body && typeof body.secret === "string" ? body.secret : null;
 }
 
 async function createPost(env, body) {
@@ -84,26 +89,46 @@ async function createFirstMessage(env, postId, body) {
   if (filtered) return error(filtered, 400);
 
   const id = newId();
+  const secret = newSecret();
   await insertMessage(env.DB, {
     id,
     post_id: postId,
     text,
+    secret_hash: await sha256Hex(secret),
+    thread_key: null,
     thread_key_hash: null,
     parent_id: null,
     role: "first",
     created_at: Date.now(),
   });
-  return json({ id, post_id: postId, hidden: true }, 201);
+  return json({ id, post_id: postId, hidden: true, secret }, 201);
+}
+
+async function waitingMessages(env, postId, body) {
+  const secret = readSecret(body);
+  if (secret == null) return error("bad_request", 400);
+
+  const post = await findPost(env.DB, postId);
+  if (!post) return error("not_found", 404);
+  if (post.secret_hash !== (await sha256Hex(secret))) {
+    return error("bad_secret", 403);
+  }
+
+  const messages = await listWaitingFirsts(env.DB, postId);
+  return json({
+    messages: messages.map((row) => ({ id: row.id, text: row.text })),
+  });
 }
 
 async function acceptMessage(env, postId, body) {
-  if (!body || typeof body.secret !== "string" || typeof body.message_id !== "string") {
+  const secret = readSecret(body);
+  if (secret == null || !body || typeof body.message_id !== "string") {
     return error("bad_request", 400);
   }
 
   const post = await findPost(env.DB, postId);
   if (!post) return error("not_found", 404);
-  if (post.secret_hash !== (await sha256Hex(body.secret))) {
+  if (post.secret_hash !== (await sha256Hex(secret))) {
     return error("bad_secret", 403);
   }
 
@@ -120,6 +145,8 @@ async function acceptMessage(env, postId, body) {
     id: newId(),
     post_id: postId,
     text: null,
+    secret_hash: null,
+    thread_key,
     thread_key_hash: await sha256Hex(thread_key),
     parent_id: first.id,
     role: "accept",
@@ -128,6 +155,23 @@ async function acceptMessage(env, postId, body) {
   if (!inserted.ok) return error(inserted.error, 409);
 
   return json({ thread_key }, 201);
+}
+
+async function claimThread(env, messageId, body) {
+  const secret = readSecret(body);
+  if (secret == null) return error("bad_request", 400);
+
+  const first = await findMessage(env.DB, messageId);
+  if (!first || first.role !== "first") return error("not_found", 404);
+  if (!first.secret_hash || first.secret_hash !== (await sha256Hex(secret))) {
+    return error("bad_secret", 403);
+  }
+
+  const accept = await findAcceptForFirst(env.DB, first.id);
+  if (!accept || !accept.thread_key) {
+    return json({ accepted: false });
+  }
+  return json({ accepted: true, thread_key: accept.thread_key });
 }
 
 async function loadThread(env, threadKey) {
@@ -164,6 +208,8 @@ async function createLaterMessage(env, threadKey, body) {
     id,
     post_id: thread.post_id,
     text,
+    secret_hash: null,
+    thread_key: null,
     thread_key_hash: await sha256Hex(threadKey),
     parent_id: null,
     role: "later",
@@ -193,8 +239,14 @@ export async function handle(request, env) {
   if (parts.length === 3 && parts[0] === "posts" && parts[2] === "messages" && method === "POST") {
     return createFirstMessage(env, parts[1], await readBody(request));
   }
+  if (parts.length === 3 && parts[0] === "posts" && parts[2] === "waiting" && method === "POST") {
+    return waitingMessages(env, parts[1], await readBody(request));
+  }
   if (parts.length === 3 && parts[0] === "posts" && parts[2] === "accept" && method === "POST") {
     return acceptMessage(env, parts[1], await readBody(request));
+  }
+  if (parts.length === 3 && parts[0] === "messages" && parts[2] === "thread" && method === "POST") {
+    return claimThread(env, parts[1], await readBody(request));
   }
   if (parts.length === 2 && parts[0] === "threads" && method === "GET") {
     return getThread(env, parts[1]);

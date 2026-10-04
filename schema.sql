@@ -15,6 +15,8 @@ CREATE TABLE messages (
   id TEXT PRIMARY KEY,
   post_id TEXT NOT NULL,
   text TEXT,
+  secret_hash TEXT,
+  thread_key TEXT,
   thread_key_hash TEXT,
   parent_id TEXT,
   role TEXT NOT NULL CHECK (role IN ('first', 'accept', 'later')),
