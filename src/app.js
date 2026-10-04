@@ -12,11 +12,23 @@ import {
   listWaitingFirsts,
 } from "./db.js";
 import { filterNote, trimNote } from "./filter.js";
+import { LANDING_HTML, SERVICE_DESC_LINK } from "./landing.js";
+import { openapi } from "./openapi.js";
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+function html(body) {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      link: SERVICE_DESC_LINK,
+    },
   });
 }
 
@@ -223,6 +235,12 @@ export async function handle(request, env) {
   const parts = url.pathname.split("/").filter(Boolean);
   const method = request.method;
 
+  if (parts.length === 0 && method === "GET") {
+    return html(LANDING_HTML);
+  }
+  if (parts.length === 1 && parts[0] === "openapi.json" && method === "GET") {
+    return json(openapi);
+  }
   if (parts.length === 1 && parts[0] === "posts" && method === "GET") {
     return getPosts(env);
   }

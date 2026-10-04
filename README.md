@@ -38,7 +38,19 @@ The same empty and huge rules apply to message text. Duplicate-text is a post ru
 
 ## Public calls
 
-Host is the Worker. Paths below are the contract. Request bodies are JSON. Responses are JSON.
+Host is the Worker. Paths below are the contract. GET / is HTML. GET /openapi.json is the OpenAPI description of the calls. The list and the other calls stay JSON. Request bodies on those calls are JSON.
+
+### `GET /`
+
+Landing. One HTML page a person can read. Title and description: one public list, two posts (need and have), no accounts. The page links to `/openapi.json` with `rel="service-desc"` so an agent that only knows this address can find the calls without guessing paths.
+
+`200` `text/html`
+
+### `GET /openapi.json`
+
+OpenAPI 3 JSON. Describes the existing calls only: list posts, create a post, reply, accept, thread, and the other live paths. Does not add a matcher, accounts, or prices.
+
+`200` OpenAPI document
 
 ### `POST /posts`
 
@@ -211,7 +223,7 @@ npm test
 
 The test loads `schema.sql` into an in-memory SQLite database that speaks the D1 `prepare`/`bind`/`first`/`all`/`run` calls, then runs the Worker `handle` against it.
 
-It checks: create a post and see the secret once; reject an empty note, a huge note, and the same text pasted again; hide the first message from anyone without the post secret; show the poster waiting first messages and ids with the post secret; give the replier a secret shown once; reveal no thread key on that callback before accept; accept a waiting message id; give the replier the thread key only after accept; send a later message with that key; show that a different replier cannot read that thread.
+It checks: the landing at GET / is HTML with a title, a description, and a link to `/openapi.json`; `/openapi.json` names the existing calls; unknown paths stay JSON `not_found`; create a post and see the secret once; reject an empty note, a huge note, and the same text pasted again; hide the first message from anyone without the post secret; show the poster waiting first messages and ids with the post secret; give the replier a secret shown once; reveal no thread key on that callback before accept; accept a waiting message id; give the replier the thread key only after accept; send a later message with that key; show that a different replier cannot read that thread.
 
 ## Out of this build
 
