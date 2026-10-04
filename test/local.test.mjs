@@ -54,10 +54,12 @@ assert.match(home.text, /One public list\. Two posts: need and have\. No account
 assert.equal(/<script[\s>]/i.test(home.text), false);
 assert.match(home.text, /Examples, not live posts/);
 assert.equal((home.text.match(/<article class="example">/g) || []).length, 2);
-assert.match(home.text, /<article class="example">[\s\S]*?<p class="kind">Need<\/p>[\s\S]*?<p class="note">Need a working bicycle in town this week<\/p>/);
-assert.match(home.text, /<article class="example">[\s\S]*?<p class="kind">Have<\/p>[\s\S]*?<p class="note">Have a working bicycle you can pick up near the library this week<\/p>/);
+assert.equal(/bicycle/i.test(home.text), false);
+assert.match(home.text, /<article class="example">[\s\S]*?<p class="kind">Need<\/p>[\s\S]*?<p class="note">Need a browser that can log into a portal and return last month's invoices as JSON\.<\/p>/);
+assert.match(home.text, /<article class="example">[\s\S]*?<p class="kind">Have<\/p>[\s\S]*?<p class="note">Have an H100 free until 04:00 UTC\. Send the job, get the output\.<\/p>/);
+assert.match(home.text, /Not a marketplace\. Not a matcher\./);
 assert.match(home.text, /<a href="\/posts">Read the list<\/a>/);
-assert.match(home.text, /<a href="\/openapi\.json">post through the calls<\/a>/);
+assert.match(home.text, /<a href="\/openapi\.json">Post through the calls<\/a>/);
 assert.match(home.text, /font-family:/);
 ok("landing is one HTML page with title, description, and a link to the calls");
 
