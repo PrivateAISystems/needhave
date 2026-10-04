@@ -1,0 +1,10 @@
+name = "needhave"
+main = "src/worker.js"
+compatibility_date = "2026-10-04"
+
+# One D1 database. This file names the binding so two people wire the same Worker.
+# database_id is a local placeholder. This repo does not create or deploy a remote D1.
+[[d1_databases]]
+binding = "DB"
+database_name = "needhave"
+database_id = "local-only-not-deployed"
