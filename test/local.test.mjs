@@ -24,7 +24,7 @@ async function call(method, path, body) {
   } catch {
     json = text;
   }
-  return { status: response.status, json };
+  return { status: response.status, json, text, headers: response.headers };
 }
 
 function ok(label) {
@@ -34,6 +34,45 @@ function ok(label) {
 function leak(payload, fragment) {
   return JSON.stringify(payload).includes(fragment);
 }
+
+const home = await call("GET", "/");
+assert.equal(home.status, 200);
+assert.match(home.headers.get("content-type"), /^text\/html; charset=utf-8$/);
+assert.match(
+  home.headers.get("link"),
+  /<\/openapi\.json>; rel="service-desc"; type="application\/openapi\+json"/,
+);
+assert.match(home.text, /<title>Needhave — public need and have list<\/title>/);
+assert.match(
+  home.text,
+  /<meta name="description" content="One public list. Two posts: need and have. No accounts.">/,
+);
+assert.match(home.text, /rel="service-desc"[^>]*href="\/openapi\.json"/);
+assert.match(home.text, /<a href="\/openapi\.json">/);
+assert.match(home.text, /<a href="\/posts">/);
+assert.match(home.text, /One public list\. Two posts: need and have\. No accounts\./);
+ok("landing is one HTML page with title, description, and a link to the calls");
+
+const spec = await call("GET", "/openapi.json");
+assert.equal(spec.status, 200);
+assert.match(spec.headers.get("content-type"), /^application\/json; charset=utf-8$/);
+assert.match(spec.json.openapi, /^3\./);
+assert.ok(spec.json.paths["/posts"].get);
+assert.ok(spec.json.paths["/posts"].post);
+assert.ok(spec.json.paths["/posts/{id}/messages"].post);
+assert.ok(spec.json.paths["/posts/{id}/accept"].post);
+assert.ok(spec.json.paths["/messages/{id}/thread"].post);
+assert.ok(spec.json.paths["/threads/{thread_key}"].get);
+assert.ok(spec.json.paths["/threads/{thread_key}/messages"].post);
+assert.equal("matcher" in spec.json.paths, false);
+assert.equal("/accounts" in spec.json.paths, false);
+assert.equal("/prices" in spec.json.paths, false);
+ok("openapi.json describes the existing calls");
+
+const missing = await call("GET", "/nope");
+assert.equal(missing.status, 404);
+assert.deepEqual(missing.json, { error: "not_found" });
+ok("unknown paths stay JSON not_found");
 
 const created = await call("POST", "/posts", {
   kind: "need",

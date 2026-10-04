@@ -1,0 +1,316 @@
+const error = {
+  type: "object",
+  required: ["error"],
+  properties: { error: { type: "string" } },
+  additionalProperties: false,
+};
+
+const publicPost = {
+  type: "object",
+  required: ["id", "kind", "note"],
+  properties: {
+    id: { type: "string" },
+    kind: { type: "string", enum: ["need", "have"] },
+    note: { type: "string" },
+  },
+  additionalProperties: false,
+};
+
+const message = {
+  type: "object",
+  required: ["id", "text"],
+  properties: {
+    id: { type: "string" },
+    text: { type: "string" },
+  },
+  additionalProperties: false,
+};
+
+function jsonContent(schema) {
+  return { content: { "application/json": { schema } } };
+}
+
+function jsonResponse(description, schema) {
+  return { description, ...jsonContent(schema) };
+}
+
+function errorResponse(description) {
+  return jsonResponse(description, { $ref: "#/components/schemas/Error" });
+}
+
+const idParam = {
+  name: "id",
+  in: "path",
+  required: true,
+  schema: { type: "string" },
+};
+
+const threadKeyParam = {
+  name: "thread_key",
+  in: "path",
+  required: true,
+  schema: { type: "string" },
+};
+
+export const openapi = {
+  openapi: "3.1.0",
+  info: {
+    title: "Needhave",
+    description: "One public list. Two posts: need and have. No accounts.",
+    version: "1.0.0",
+  },
+  servers: [{ url: "https://needhave.io" }],
+  paths: {
+    "/posts": {
+      get: {
+        summary: "List posts",
+        description: "Public list. Newest first. No secrets. No messages.",
+        responses: {
+          200: jsonResponse("Public list", {
+            type: "object",
+            required: ["posts"],
+            properties: {
+              posts: { type: "array", items: { $ref: "#/components/schemas/PublicPost" } },
+            },
+            additionalProperties: false,
+          }),
+        },
+      },
+      post: {
+        summary: "Create a post",
+        description: "Secret is in this response only.",
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["kind", "note"],
+            properties: {
+              kind: { type: "string", enum: ["need", "have"] },
+              note: { type: "string" },
+            },
+          }),
+        },
+        responses: {
+          201: jsonResponse("Created post", {
+            type: "object",
+            required: ["id", "kind", "note", "secret"],
+            properties: {
+              id: { type: "string" },
+              kind: { type: "string", enum: ["need", "have"] },
+              note: { type: "string" },
+              secret: { type: "string" },
+            },
+            additionalProperties: false,
+          }),
+          400: errorResponse("bad_kind, empty_note, or huge_note"),
+          409: errorResponse("duplicate_note"),
+        },
+      },
+    },
+    "/posts/{id}": {
+      get: {
+        summary: "Get one post",
+        description: "One public post. No secret. No messages.",
+        parameters: [idParam],
+        responses: {
+          200: jsonResponse("Public post", { $ref: "#/components/schemas/PublicPost" }),
+          404: errorResponse("not_found"),
+        },
+      },
+    },
+    "/posts/{id}/messages": {
+      get: {
+        summary: "Public messages on a post",
+        description:
+          "Always empty. Waiting first messages and accepted threads are not listed here.",
+        parameters: [idParam],
+        responses: {
+          200: jsonResponse("Empty public message list", {
+            type: "object",
+            required: ["messages"],
+            properties: {
+              messages: { type: "array", maxItems: 0, items: { $ref: "#/components/schemas/Message" } },
+            },
+            additionalProperties: false,
+          }),
+          404: errorResponse("not_found"),
+        },
+      },
+      post: {
+        summary: "Reply",
+        description:
+          "First message from a replier. Reply secret is in this response only. The message stays hidden from anyone without the post secret.",
+        parameters: [idParam],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["text"],
+            properties: { text: { type: "string" } },
+          }),
+        },
+        responses: {
+          201: jsonResponse("Hidden first message", {
+            type: "object",
+            required: ["id", "post_id", "hidden", "secret"],
+            properties: {
+              id: { type: "string" },
+              post_id: { type: "string" },
+              hidden: { type: "boolean" },
+              secret: { type: "string" },
+            },
+            additionalProperties: false,
+          }),
+          400: errorResponse("empty_note or huge_note"),
+          404: errorResponse("not_found"),
+        },
+      },
+    },
+    "/posts/{id}/waiting": {
+      post: {
+        summary: "Read waiting first messages",
+        description:
+          "Poster reads waiting first messages with the post secret. Accepted first messages are not listed.",
+        parameters: [idParam],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["secret"],
+            properties: { secret: { type: "string" } },
+          }),
+        },
+        responses: {
+          200: jsonResponse("Waiting first messages", {
+            type: "object",
+            required: ["messages"],
+            properties: {
+              messages: { type: "array", items: { $ref: "#/components/schemas/Message" } },
+            },
+            additionalProperties: false,
+          }),
+          400: errorResponse("bad_request"),
+          403: errorResponse("bad_secret"),
+          404: errorResponse("not_found"),
+        },
+      },
+    },
+    "/posts/{id}/accept": {
+      post: {
+        summary: "Accept a first message",
+        description:
+          "Poster accepts one first message with the post secret. Writes one thread key. The replier uses POST /messages/{id}/thread.",
+        parameters: [idParam],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["secret", "message_id"],
+            properties: {
+              secret: { type: "string" },
+              message_id: { type: "string" },
+            },
+          }),
+        },
+        responses: {
+          201: jsonResponse("Accepted", {
+            type: "object",
+            required: ["thread_key"],
+            properties: { thread_key: { type: "string" } },
+            additionalProperties: false,
+          }),
+          400: errorResponse("bad_request"),
+          403: errorResponse("bad_secret"),
+          404: errorResponse("not_found"),
+          409: errorResponse("already_accepted"),
+        },
+      },
+    },
+    "/messages/{id}/thread": {
+      post: {
+        summary: "Claim a thread key",
+        description:
+          "Replier calls back with the reply secret. Before accept: accepted is false and there is no thread_key. After accept: accepted is true and thread_key is set.",
+        parameters: [idParam],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["secret"],
+            properties: { secret: { type: "string" } },
+          }),
+        },
+        responses: {
+          200: jsonResponse("Thread claim", {
+            type: "object",
+            required: ["accepted"],
+            properties: {
+              accepted: { type: "boolean" },
+              thread_key: { type: "string" },
+            },
+            additionalProperties: false,
+          }),
+          400: errorResponse("bad_request"),
+          403: errorResponse("bad_secret"),
+          404: errorResponse("not_found"),
+        },
+      },
+    },
+    "/threads/{thread_key}": {
+      get: {
+        summary: "Read a thread",
+        description:
+          "First message, then later messages, oldest first. Anyone without this key gets 404.",
+        parameters: [threadKeyParam],
+        responses: {
+          200: jsonResponse("Thread", {
+            type: "object",
+            required: ["post_id", "messages"],
+            properties: {
+              post_id: { type: "string" },
+              messages: { type: "array", items: { $ref: "#/components/schemas/Message" } },
+            },
+            additionalProperties: false,
+          }),
+          404: errorResponse("not_found"),
+        },
+      },
+    },
+    "/threads/{thread_key}/messages": {
+      post: {
+        summary: "Send a later message",
+        description:
+          "Later message on that thread. The poster uses the key from accept. The replier uses the key from POST /messages/{id}/thread after accept.",
+        parameters: [threadKeyParam],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["text"],
+            properties: { text: { type: "string" } },
+          }),
+        },
+        responses: {
+          201: jsonResponse("Later message", {
+            type: "object",
+            required: ["id", "post_id"],
+            properties: {
+              id: { type: "string" },
+              post_id: { type: "string" },
+            },
+            additionalProperties: false,
+          }),
+          400: errorResponse("empty_note or huge_note"),
+          404: errorResponse("not_found"),
+        },
+      },
+    },
+  },
+  components: {
+    schemas: {
+      Error: error,
+      PublicPost: publicPost,
+      Message: message,
+    },
+  },
+};
