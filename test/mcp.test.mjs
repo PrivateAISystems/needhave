@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
 import { LANDING_HTML } from "../src/landing.js";
 import { createListClient, LIVE_LIST } from "../src/list-client.js";
-import { MAX_NOTE } from "../src/limits.js";
+import { MAX_NOTE, MAX_POSTS_PER_IP } from "../src/limits.js";
 import { handleMcp, TOOLS } from "../src/mcp.js";
 import worker from "../src/worker.js";
 import { createLocalEnv } from "./d1-sqlite.mjs";
@@ -65,6 +65,18 @@ function leak(payload, fragment) {
 
 assert.equal(/<form[\s>]/i.test(LANDING_HTML), false);
 assert.equal(LANDING_HTML.includes("/mcp"), false);
+assert.match(
+  LANDING_HTML,
+  /Your note is public\. Anyone can read it, so do not put a phone number or email in it\. There is no account\./,
+);
+assert.match(
+  LANDING_HTML,
+  /When you post, you get a code once\. Keep it\. You need that code to see replies and to let one through\. If you lose it, it cannot be replaced\./,
+);
+assert.match(
+  LANDING_HTML,
+  /Any reply is hidden from everyone else, not from you\. Use your code to read it, then decide whether to let it through\. After you do, only you and the person who replied can read the conversation\./,
+);
 ok("landing page is unchanged and has no form");
 
 const home = await worker.fetch(new Request("http://needhave.local/"), env);
@@ -88,6 +100,14 @@ assert.equal(createListClient().baseUrl, LIVE_LIST);
 const stdioSource = readFileSync(join(root, "src/mcp-stdio.js"), "utf8");
 assert.match(stdioSource, /NEEDHAVE_LIST_URL \|\| LIVE_LIST/);
 assert.equal(stdioSource.includes("createInProcessListClient"), false);
+const listClientSource = readFileSync(join(root, "src/list-client.js"), "utf8");
+assert.match(listClientSource, /call\("POST", "\/threads", \{ thread_key: threadKey \}\)/);
+assert.match(
+  listClientSource,
+  /call\("POST", "\/threads\/messages", \{ thread_key: threadKey, text \}\)/,
+);
+assert.equal(listClientSource.includes("/threads/${"), false);
+assert.equal(listClientSource.includes("/threads/`"), false);
 ok("local stdio client stays pointed at the live list");
 
 const htmlList = createListClient({
@@ -374,6 +394,28 @@ const stillListJson = await stillList.json();
 assert.equal(stillListJson.posts.length, 2);
 assert.equal("secret" in stillListJson.posts[0], false);
 ok("the Worker still serves the same JSON list");
+
+const batch = [];
+for (let i = 0; i < MAX_POSTS_PER_IP + 2; i++) {
+  batch.push({
+    jsonrpc: "2.0",
+    id: 200 + i,
+    method: "tools/call",
+    params: {
+      name: "create_need",
+      arguments: { note: `Need a batch flood note ${i} for the per-ip cap` },
+    },
+  });
+}
+const batched = await mcp(batch, { headers: { "cf-connecting-ip": "198.51.100.77" } });
+assert.equal(batched.status, 200);
+assert.equal(Array.isArray(batched.json), true);
+const batchPayloads = batched.json.map((item) => JSON.parse(item.result.content[0].text));
+const batchOk = batchPayloads.filter((item) => item.id && item.secret);
+const batchLimited = batchPayloads.filter((item) => item.error === "rate_limited");
+assert.equal(batchOk.length, MAX_POSTS_PER_IP);
+assert.equal(batchLimited.length, 2);
+ok("MCP JSON-RPC batch cannot skip the per-ip create-post limit");
 
 const stdio = await new Promise((resolve, reject) => {
   const server = createServer(async (req, res) => {

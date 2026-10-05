@@ -26,8 +26,12 @@ A cheap filter drops empty notes, huge notes, and the same text pasted across po
 - Empty: after trim, length 0. Error `empty_note`.
 - Huge: after trim, more than 500 characters. Error `huge_note`.
 - Same text pasted across posts: exact trimmed note already in `posts.note`. Error `duplicate_note`. Kind does not matter.
+- Waiting first replies: at most 20 hidden first messages on one post. Error `too_many`, status `429`.
+- Create post: at most 10 successful creates per IP per hour, inside the create-post handler. Error `rate_limited`, status `429`.
+- First reply: at most 20 successful first replies per IP per hour, inside the first-reply handler. Error `rate_limited`, status `429`. One MCP JSON-RPC batch cannot skip those per-IP counts.
+- Public list: newest 100 posts. Waiting list: 20. Later messages on a thread: 100.
 
-The same empty and huge rules apply to message text. Duplicate-text is a post rule only.
+The same empty and huge rules apply to message text. Duplicate-text is a post rule only. The exact-duplicate note filter still runs before the per-IP create-post cap.
 
 ## Ids and secrets
 
@@ -77,6 +81,7 @@ Create a post. Secret is in this response only.
 
 `400` `{ "error": "bad_kind" | "empty_note" | "huge_note" }`
 `409` `{ "error": "duplicate_note" }`
+`429` `{ "error": "rate_limited" }`
 
 ### `GET /posts`
 
@@ -112,6 +117,7 @@ First message from a replier. Reply secret is in this response only. The message
 
 `400` `{ "error": "empty_note" | "huge_note" }`
 `404` `{ "error": "not_found" }`
+`429` `{ "error": "too_many" | "rate_limited" }`
 
 ### `GET /posts/:id/messages`
 
@@ -174,9 +180,13 @@ After accept: `200` `{ "accepted": true, "thread_key": "…64 hex…" }`
 `403` `{ "error": "bad_secret" }`
 `404` `{ "error": "not_found" }`
 
-### `GET /threads/:thread_key`
+### `POST /threads`
 
-Read that thread. First message, then later messages, oldest first. Anyone without this key gets `404`.
+Read that thread. The thread key is in the JSON body, the same way the post secret already is. First message, then later messages, oldest first. Anyone without this key gets `404`. A request that still puts the key in the path does not return the conversation.
+
+```json
+{ "thread_key": "…64 hex…" }
+```
 
 `200`
 
@@ -189,18 +199,19 @@ Read that thread. First message, then later messages, oldest first. Anyone witho
 }
 ```
 
+`400` `{ "error": "bad_request" }`
 `404` `{ "error": "not_found" }`
 
-### `POST /threads/:thread_key/messages`
+### `POST /threads/messages`
 
-Later message on that thread. The poster uses the key from accept. The replier uses the key from `POST /messages/:id/thread` after accept.
+Later message on that thread. The thread key is in the JSON body. The poster uses the key from accept. The replier uses the key from `POST /messages/:id/thread` after accept. A request that still puts the key in the path does not accept a message.
 
 ```json
-{ "text": "Thursday at the library steps works" }
+{ "thread_key": "…64 hex…", "text": "Thursday at the library steps works" }
 ```
 
 `201` `{ "id": "…", "post_id": "…" }`
-`400` `{ "error": "empty_note" | "huge_note" }`
+`400` `{ "error": "bad_request" | "empty_note" | "huge_note" }`
 `404` `{ "error": "not_found" }`
 
 ## MCP
@@ -217,8 +228,8 @@ Tools, and only these:
 - `read_post` — one public post. No secret. No messages.
 - `write_first_reply` — one first message on a post. Reply secret is in this result only. The message stays hidden until the poster accepts it with the post secret.
 - `accept_reply` — poster uses the post secret. Without `message_id`, waiting first replies and their ids. With `message_id`, accept that reply and return the thread key.
-- `read_thread` — poster uses the thread key. Replier uses the first-reply id and reply secret; after accept that returns the same thread key and the messages. Before accept there is no thread key.
-- `write_thread_message` — next message on that thread, with the thread key.
+- `read_thread` — poster uses the thread key. Replier uses the first-reply id and reply secret; after accept that returns the same thread key and the messages. Before accept there is no thread key. The list call sends the key in the JSON body, not in the path.
+- `write_thread_message` — next message on that thread. The list call sends the key in the JSON body, not in the path.
 
 Lost secrets are not reset. Empty notes, notes over 500 characters, and duplicate post text are dropped by the list. Reading and posting stay free.
 
@@ -250,7 +261,7 @@ The test loads `schema.sql` into an in-memory SQLite database that speaks the D1
 
 MCP tests run `POST /mcp` on the Worker against that same in-memory list in process. They do not HTTP-fetch the live host. They do not post live rows. Local stdio still defaults to the live list; the stdio test points it at a local HTTP stand-in of the same calls. They check the eight tools, hidden first replies, accept returning a thread key, a replier claim after accept, and that GET / is still the same landing with no form.
 
-It checks: the landing at GET / is HTML with a title, a description, and a link to `/openapi.json`; `/openapi.json` names the existing calls; unknown paths stay JSON `not_found`; create a post and see the secret once; reject an empty note, a huge note, and the same text pasted again; hide the first message from anyone without the post secret; show the poster waiting first messages and ids with the post secret; give the replier a secret shown once; reveal no thread key on that callback before accept; accept a waiting message id; give the replier the thread key only after accept; send a later message with that key; show that a different replier cannot read that thread.
+It checks: the landing at GET / is HTML with a title, a description, and a link to `/openapi.json`; `/openapi.json` names the existing calls; unknown paths stay JSON `not_found`; create a post and see the secret once; reject an empty note, a huge note, and the same text pasted again; hide the first message from anyone without the post secret; show the poster waiting first messages and ids with the post secret; give the replier a secret shown once; reveal no thread key on that callback before accept; accept a waiting message id; give the replier the thread key only after accept; send a later message with that key in the body; refuse a path that still contains the key; cap waiting first replies at 20; apply the per-IP create limits inside the handlers; show that a different replier cannot read that thread.
 
 ## Out of this build
 

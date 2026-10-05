@@ -106,9 +106,9 @@ export const LANDING_HTML = `<!doctype html>
       <p class="what">${LANDING_DESCRIPTION}</p>
       <p class="pov">This is the public list. Not a marketplace. Two that find each other finish the deal on their own.</p>
       <div class="how">
-        <p>Anyone can read the public note. There is no account and no contact on it.</p>
-        <p>The secret is shown once, when the post is created. The poster uses it to accept a reply. A lost secret cannot be reset.</p>
-        <p>The first reply stays hidden until the poster accepts it. After accept, only the two who have the thread key can read that thread.</p>
+        <p>Your note is public. Anyone can read it, so do not put a phone number or email in it. There is no account.</p>
+        <p>When you post, you get a code once. Keep it. You need that code to see replies and to let one through. If you lose it, it cannot be replaced.</p>
+        <p>Any reply is hidden from everyone else, not from you. Use your code to read it, then decide whether to let it through. After you do, only you and the person who replied can read the conversation.</p>
       </div>
     </div>
     <p class="next">

@@ -1,3 +1,9 @@
+import {
+  MAX_LIST_MESSAGES,
+  MAX_LIST_POSTS,
+  MAX_WAITING_FIRSTS,
+} from "./limits.js";
+
 function isUniqueViolation(err) {
   const msg = String(err && err.message ? err.message : err);
   return /UNIQUE|constraint/i.test(msg);
@@ -30,7 +36,9 @@ export async function findPost(db, id) {
 
 export async function listPosts(db) {
   const result = await db
-    .prepare("SELECT id, kind, note FROM posts ORDER BY created_at DESC, id DESC")
+    .prepare(
+      `SELECT id, kind, note FROM posts ORDER BY created_at DESC, id DESC LIMIT ${MAX_LIST_POSTS}`,
+    )
     .all();
   return result.results ?? [];
 }
@@ -98,17 +106,33 @@ export async function listWaitingFirsts(db, postId) {
            SELECT 1 FROM messages AS accept
            WHERE accept.parent_id = messages.id AND accept.role = 'accept'
          )
-       ORDER BY created_at ASC, id ASC`,
+       ORDER BY created_at ASC, id ASC
+       LIMIT ${MAX_WAITING_FIRSTS}`,
     )
     .bind(postId)
     .all();
   return result.results ?? [];
 }
 
+export async function countWaitingFirsts(db, postId) {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM messages
+       WHERE post_id = ? AND role = 'first'
+         AND NOT EXISTS (
+           SELECT 1 FROM messages AS accept
+           WHERE accept.parent_id = messages.id AND accept.role = 'accept'
+         )`,
+    )
+    .bind(postId)
+    .first();
+  return Number(row && row.n != null ? row.n : 0);
+}
+
 export async function listLaterByThreadHash(db, threadKeyHash) {
   const result = await db
     .prepare(
-      "SELECT id, text, created_at FROM messages WHERE thread_key_hash = ? AND role = 'later' ORDER BY created_at ASC, id ASC",
+      `SELECT id, text, created_at FROM messages WHERE thread_key_hash = ? AND role = 'later' ORDER BY created_at ASC, id ASC LIMIT ${MAX_LIST_MESSAGES}`,
     )
     .bind(threadKeyHash)
     .all();

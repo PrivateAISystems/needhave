@@ -109,11 +109,11 @@ export const TOOLS = [
   {
     name: "read_thread",
     description:
-      "Read a thread with its key. The poster uses the thread key from accept_reply. The replier uses the first-reply id and reply secret; after accept that returns the same thread key and the messages.",
+      "Read a thread with its key in the tool arguments. The list call sends that key in the JSON body, not in the path. The poster uses the thread key from accept_reply. The replier uses the first-reply id and reply secret; after accept that returns the same thread key and the messages.",
     inputSchema: {
       type: "object",
       properties: {
-        thread_key: { type: "string", description: "Thread key from accept, or from a replier claim." },
+        thread_key: { type: "string", description: "Thread key from accept, or from a replier claim. Sent in the JSON body." },
         message_id: { type: "string", description: "First-reply id. Use with the reply secret." },
         secret: { type: "string", description: "Reply secret shown once when the first reply was written." },
       },
@@ -123,12 +123,13 @@ export const TOOLS = [
   },
   {
     name: "write_thread_message",
-    description: "Write the next message on a thread. Uses the thread key.",
+    description:
+      "Write the next message on a thread. The thread key is sent in the JSON body, not in the path.",
     inputSchema: {
       type: "object",
       required: ["thread_key", "text"],
       properties: {
-        thread_key: { type: "string", description: "Thread key." },
+        thread_key: { type: "string", description: "Thread key. Sent in the JSON body." },
         text: textProperty,
       },
       additionalProperties: false,

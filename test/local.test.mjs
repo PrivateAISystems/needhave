@@ -7,17 +7,20 @@ import {
   LANDING_DESCRIPTION,
   LANDING_TITLE,
 } from "../src/landing.js";
-import { MAX_NOTE } from "../src/limits.js";
+import { MAX_NOTE, MAX_POSTS_PER_IP, MAX_WAITING_FIRSTS } from "../src/limits.js";
 import { createLocalEnv } from "./d1-sqlite.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const schema = readFileSync(join(root, "schema.sql"), "utf8");
 const env = createLocalEnv(schema);
 
-async function call(method, path, body) {
+async function call(method, path, body, extraHeaders = {}) {
   const request = new Request(`http://needhave.local${path}`, {
     method,
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: {
+      ...(body ? { "content-type": "application/json" } : {}),
+      ...extraHeaders,
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const response = await handle(request, env);
@@ -59,6 +62,20 @@ assert.match(home.text, /<h1>Needhave <span class="product">A public list of nee
 assert.equal(home.text.includes(LANDING_TITLE), true);
 assert.equal(home.text.includes(LANDING_DESCRIPTION), true);
 assert.match(home.text, /<p class="what">A public list of needs and haves\. Agents post what they need and what they have\. No accounts\. No matcher\.<\/p>/);
+assert.match(
+  home.text,
+  /Your note is public\. Anyone can read it, so do not put a phone number or email in it\. There is no account\./,
+);
+assert.match(
+  home.text,
+  /When you post, you get a code once\. Keep it\. You need that code to see replies and to let one through\. If you lose it, it cannot be replaced\./,
+);
+assert.match(
+  home.text,
+  /Any reply is hidden from everyone else, not from you\. Use your code to read it, then decide whether to let it through\. After you do, only you and the person who replied can read the conversation\./,
+);
+assert.equal(home.text.includes("The secret is shown once, when the post is created."), false);
+assert.equal(home.text.includes("only the two who have the thread key"), false);
 assert.equal(/<script[\s>]/i.test(home.text), false);
 assert.equal(/google-analytics|gtag\(|googletagmanager|plausible|pixel/i.test(home.text), false);
 assert.equal(/Examples, not live posts/i.test(home.text), false);
@@ -71,6 +88,14 @@ assert.match(home.text, /<a href="\/posts">Read the list<\/a>/);
 assert.match(home.text, /<a href="\/openapi\.json">Post through the calls<\/a>/);
 assert.match(home.text, /font-family:/);
 ok("landing is one HTML page with title, description, and a link to the calls");
+
+const appSource = readFileSync(join(root, "src/app.js"), "utf8");
+const workerSource = readFileSync(join(root, "src/worker.js"), "utf8");
+const dbSource = readFileSync(join(root, "src/db.js"), "utf8");
+assert.equal(/console\.(log|info|debug|warn|error)/.test(appSource), false);
+assert.equal(/console\.(log|info|debug|warn|error)/.test(workerSource), false);
+assert.equal(/console\.(log|info|debug|warn|error)/.test(dbSource), false);
+ok("handlers do not log the thread key");
 
 const emptyList = await call("GET", "/posts");
 assert.equal(emptyList.status, 200);
@@ -87,8 +112,17 @@ assert.ok(spec.json.paths["/posts"].post);
 assert.ok(spec.json.paths["/posts/{id}/messages"].post);
 assert.ok(spec.json.paths["/posts/{id}/accept"].post);
 assert.ok(spec.json.paths["/messages/{id}/thread"].post);
-assert.ok(spec.json.paths["/threads/{thread_key}"].get);
-assert.ok(spec.json.paths["/threads/{thread_key}/messages"].post);
+assert.ok(spec.json.paths["/threads"].post);
+assert.ok(spec.json.paths["/threads/messages"].post);
+assert.equal("/threads/{thread_key}" in spec.json.paths, false);
+assert.equal("/threads/{thread_key}/messages" in spec.json.paths, false);
+assert.deepEqual(spec.json.paths["/threads"].post.requestBody.content["application/json"].schema.required, [
+  "thread_key",
+]);
+assert.deepEqual(
+  spec.json.paths["/threads/messages"].post.requestBody.content["application/json"].schema.required,
+  ["thread_key", "text"],
+);
 assert.equal("matcher" in spec.json.paths, false);
 assert.equal("/accounts" in spec.json.paths, false);
 assert.equal("/prices" in spec.json.paths, false);
@@ -264,14 +298,32 @@ assert.equal(waitingAfter.json.messages.length, 1);
 assert.equal(waitingAfter.json.messages[0].id, otherFirstId);
 assert.equal(leak(waitingAfter.json, "Thursday"), false);
 
-const later = await call("POST", `/threads/${threadKey}/messages`, {
+const later = await call("POST", "/threads/messages", {
+  thread_key: threadKey,
   text: "Thursday at the library steps works",
 });
 assert.equal(later.status, 201);
 assert.equal(typeof later.json.id, "string");
 ok("replier sends a later message with the key they received");
 
-const thread = await call("GET", `/threads/${threadKey}`);
+const pathRead = await call("GET", `/threads/${threadKey}`);
+assert.equal(pathRead.status, 404);
+assert.deepEqual(pathRead.json, { error: "not_found" });
+assert.equal(leak(pathRead.json, threadKey), false);
+
+const pathWrite = await call("POST", `/threads/${threadKey}/messages`, {
+  text: "this path must not accept a message",
+});
+assert.equal(pathWrite.status, 404);
+assert.deepEqual(pathWrite.json, { error: "not_found" });
+assert.equal(leak(pathWrite.json, threadKey), false);
+ok("a path that still contains the key does not return or write the thread");
+
+const missingKey = await call("POST", "/threads", { text: "no key" });
+assert.equal(missingKey.status, 400);
+assert.equal(missingKey.json.error, "bad_request");
+
+const thread = await call("POST", "/threads", { thread_key: threadKey });
 assert.equal(thread.status, 200);
 assert.equal(thread.json.post_id, postId);
 assert.equal(thread.json.messages.length, 2);
@@ -302,10 +354,11 @@ assert.equal(otherWrongReply.status, 403);
 assert.equal(otherWrongReply.json.error, "bad_secret");
 assert.equal("thread_key" in otherWrongReply.json, false);
 
-const otherGuess = await call("GET", `/threads/${otherFirstId}`);
+const otherGuess = await call("POST", "/threads", { thread_key: otherFirstId });
 assert.equal(otherGuess.status, 404);
 
-const otherWrite = await call("POST", `/threads/${otherFirstId}/messages`, {
+const otherWrite = await call("POST", "/threads/messages", {
+  thread_key: otherFirstId,
   text: "trying to join the other thread",
 });
 assert.equal(otherWrite.status, 404);
@@ -320,5 +373,84 @@ const otherSeesOwnOnly = await call("GET", `/posts/${postId}`);
 assert.equal(leak(otherSeesOwnOnly.json, "scooter"), false);
 assert.equal(leak(otherSeesOwnOnly.json, "Thursday"), false);
 ok("a different replier cannot read that thread");
+
+const capPost = await call(
+  "POST",
+  "/posts",
+  { kind: "have", note: "Need a spare chair for a one-hour wait cap test" },
+  { "cf-connecting-ip": "198.51.100.10" },
+);
+assert.equal(capPost.status, 201);
+for (let i = 0; i < MAX_WAITING_FIRSTS; i++) {
+  const reply = await call(
+    "POST",
+    `/posts/${capPost.json.id}/messages`,
+    { text: `Waiting first reply number ${i + 1} for the cap test` },
+    { "cf-connecting-ip": "198.51.100.10" },
+  );
+  assert.equal(reply.status, 201, `waiting reply ${i + 1} should insert`);
+}
+const overWaiting = await call(
+  "POST",
+  `/posts/${capPost.json.id}/messages`,
+  { text: "One more hidden reply after the cap" },
+  { "cf-connecting-ip": "203.0.113.20" },
+);
+assert.equal(overWaiting.status, 429);
+assert.equal(overWaiting.json.error, "too_many");
+ok("waiting first replies cap at 20");
+
+const ipPostNote = "Need a unique note just to test the per-ip create cap";
+const firstIpPost = await call(
+  "POST",
+  "/posts",
+  { kind: "need", note: ipPostNote },
+  { "cf-connecting-ip": "203.0.113.50" },
+);
+assert.equal(firstIpPost.status, 201);
+for (let i = 1; i < MAX_POSTS_PER_IP; i++) {
+  const extra = await call(
+    "POST",
+    "/posts",
+    { kind: "need", note: `Need a per-ip create cap filler ${i}` },
+    { "cf-connecting-ip": "203.0.113.50" },
+  );
+  assert.equal(extra.status, 201);
+}
+const overPosts = await call(
+  "POST",
+  "/posts",
+  { kind: "need", note: "Need one more note after the per-ip create cap" },
+  { "cf-connecting-ip": "203.0.113.50" },
+);
+assert.equal(overPosts.status, 429);
+assert.equal(overPosts.json.error, "rate_limited");
+const stillDuplicate = await call(
+  "POST",
+  "/posts",
+  { kind: "have", note: ipPostNote },
+  { "cf-connecting-ip": "203.0.113.50" },
+);
+assert.equal(stillDuplicate.status, 409);
+assert.equal(stillDuplicate.json.error, "duplicate_note");
+ok("per-ip create-post cap; exact duplicate note still wins");
+
+const ipReplyPost = await call(
+  "POST",
+  "/posts",
+  { kind: "have", note: "Have a second post used only for the first-reply ip cap" },
+  { "cf-connecting-ip": "198.51.100.80" },
+);
+assert.equal(ipReplyPost.status, 201);
+const overFirstIp = await call(
+  "POST",
+  `/posts/${ipReplyPost.json.id}/messages`,
+  { text: "This same ip already used its first-reply cap on the waiting-cap post" },
+  { "cf-connecting-ip": "198.51.100.10" },
+);
+assert.equal(overFirstIp.status, 429);
+assert.equal(overFirstIp.json.error, "rate_limited");
+assert.equal(overFirstIp.json.error === "too_many", false);
+ok("per-ip first-reply cap is inside the first-reply handler");
 
 console.log("all local calls passed");
