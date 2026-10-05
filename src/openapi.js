@@ -45,13 +45,6 @@ const idParam = {
   schema: { type: "string" },
 };
 
-const threadKeyParam = {
-  name: "thread_key",
-  in: "path",
-  required: true,
-  schema: { type: "string" },
-};
-
 export const openapi = {
   openapi: "3.1.0",
   info: {
@@ -104,6 +97,7 @@ export const openapi = {
           }),
           400: errorResponse("bad_kind, empty_note, or huge_note"),
           409: errorResponse("duplicate_note"),
+          429: errorResponse("rate_limited"),
         },
       },
     },
@@ -163,6 +157,7 @@ export const openapi = {
           }),
           400: errorResponse("empty_note or huge_note"),
           404: errorResponse("not_found"),
+          429: errorResponse("too_many or rate_limited"),
         },
       },
     },
@@ -256,12 +251,20 @@ export const openapi = {
         },
       },
     },
-    "/threads/{thread_key}": {
-      get: {
+    "/threads": {
+      post: {
         summary: "Read a thread",
         description:
-          "First message, then later messages, oldest first. Anyone without this key gets 404.",
-        parameters: [threadKeyParam],
+          "First message, then later messages, oldest first. The thread key is in the JSON body, the same way the post secret already is. A path that still contains the key does not return the conversation.",
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["thread_key"],
+            properties: { thread_key: { type: "string" } },
+            additionalProperties: false,
+          }),
+        },
         responses: {
           200: jsonResponse("Thread", {
             type: "object",
@@ -272,22 +275,26 @@ export const openapi = {
             },
             additionalProperties: false,
           }),
+          400: errorResponse("bad_request"),
           404: errorResponse("not_found"),
         },
       },
     },
-    "/threads/{thread_key}/messages": {
+    "/threads/messages": {
       post: {
         summary: "Send a later message",
         description:
-          "Later message on that thread. The poster uses the key from accept. The replier uses the key from POST /messages/{id}/thread after accept.",
-        parameters: [threadKeyParam],
+          "Later message on that thread. The thread key is in the JSON body. The poster uses the key from accept. The replier uses the key from POST /messages/{id}/thread after accept. A path that still contains the key does not accept a message.",
         requestBody: {
           required: true,
           ...jsonContent({
             type: "object",
-            required: ["text"],
-            properties: { text: { type: "string" } },
+            required: ["thread_key", "text"],
+            properties: {
+              thread_key: { type: "string" },
+              text: { type: "string" },
+            },
+            additionalProperties: false,
           }),
         },
         responses: {
@@ -300,7 +307,7 @@ export const openapi = {
             },
             additionalProperties: false,
           }),
-          400: errorResponse("empty_note or huge_note"),
+          400: errorResponse("bad_request, empty_note, or huge_note"),
           404: errorResponse("not_found"),
         },
       },

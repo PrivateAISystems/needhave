@@ -5,11 +5,23 @@ function listUrl(baseUrl, path) {
   return new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
 }
 
-export function createInProcessListClient(dispatch) {
+function copyClientIp(fromRequest, headers) {
+  if (!fromRequest || !fromRequest.headers) return;
+  const ip = fromRequest.headers.get("cf-connecting-ip");
+  if (ip && ip.trim()) headers.set("cf-connecting-ip", ip.trim());
+}
+
+export function createInProcessListClient(dispatch, incoming) {
   return createListClient({
     baseUrl: IN_PROCESS_LIST,
     fetch(input, init) {
-      const request = input instanceof Request ? input : new Request(input, init);
+      const headers = new Headers(init && init.headers);
+      copyClientIp(incoming, headers);
+      const request = new Request(input instanceof Request ? input.url : input, {
+        method: init && init.method,
+        headers,
+        body: init && init.body,
+      });
       return dispatch(request);
     },
   });
@@ -54,9 +66,8 @@ export function createListClient({
       call("POST", `/posts/${encodeURIComponent(id)}/accept`, { secret, message_id }),
     claimThread: (messageId, secret) =>
       call("POST", `/messages/${encodeURIComponent(messageId)}/thread`, { secret }),
-    readThread: (threadKey) =>
-      call("GET", `/threads/${encodeURIComponent(threadKey)}`),
+    readThread: (threadKey) => call("POST", "/threads", { thread_key: threadKey }),
     writeThreadMessage: (threadKey, text) =>
-      call("POST", `/threads/${encodeURIComponent(threadKey)}/messages`, { text }),
+      call("POST", "/threads/messages", { thread_key: threadKey, text }),
   };
 }

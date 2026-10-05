@@ -1,5 +1,6 @@
 import { newId, newSecret, sha256Hex } from "./crypto.js";
 import {
+  countWaitingFirsts,
   findAcceptByThreadHash,
   findAcceptForFirst,
   findMessage,
@@ -13,6 +14,7 @@ import {
 } from "./db.js";
 import { filterNote, trimNote } from "./filter.js";
 import { LANDING_HTML, SERVICE_DESC_LINK } from "./landing.js";
+import { allowIp, MAX_WAITING_FIRSTS } from "./limits.js";
 import { openapi } from "./openapi.js";
 
 function json(data, status = 200) {
@@ -53,7 +55,11 @@ function readSecret(body) {
   return body && typeof body.secret === "string" ? body.secret : null;
 }
 
-async function createPost(env, body) {
+function readThreadKey(body) {
+  return body && typeof body.thread_key === "string" ? body.thread_key : null;
+}
+
+async function createPost(env, body, request) {
   if (!body || (body.kind !== "need" && body.kind !== "have")) {
     return error("bad_kind", 400);
   }
@@ -63,6 +69,8 @@ async function createPost(env, body) {
 
   const existing = await findPostByNote(env.DB, note);
   if (existing) return error("duplicate_note", 409);
+
+  if (!allowIp(request, "post")) return error("rate_limited", 429);
 
   const id = newId();
   const secret = newSecret();
@@ -93,13 +101,18 @@ async function publicMessages() {
   return json({ messages: [] });
 }
 
-async function createFirstMessage(env, postId, body) {
+async function createFirstMessage(env, postId, body, request) {
   const post = await findPost(env.DB, postId);
   if (!post) return error("not_found", 404);
 
   const text = trimNote(body && body.text);
   const filtered = filterNote(text);
   if (filtered) return error(filtered, 400);
+
+  const waiting = await countWaitingFirsts(env.DB, postId);
+  if (waiting >= MAX_WAITING_FIRSTS) return error("too_many", 429);
+
+  if (!allowIp(request, "first")) return error("rate_limited", 429);
 
   const id = newId();
   const secret = newSecret();
@@ -202,13 +215,18 @@ async function loadThread(env, threadKey) {
   return { post_id: accept.post_id, messages };
 }
 
-async function getThread(env, threadKey) {
+async function getThread(env, body) {
+  const threadKey = readThreadKey(body);
+  if (threadKey == null) return error("bad_request", 400);
   const thread = await loadThread(env, threadKey);
   if (!thread) return error("not_found", 404);
   return json(thread);
 }
 
-async function createLaterMessage(env, threadKey, body) {
+async function createLaterMessage(env, body) {
+  const threadKey = readThreadKey(body);
+  if (threadKey == null) return error("bad_request", 400);
+
   const thread = await loadThread(env, threadKey);
   if (!thread) return error("not_found", 404);
 
@@ -246,7 +264,7 @@ export async function handle(request, env) {
     return getPosts(env);
   }
   if (parts.length === 1 && parts[0] === "posts" && method === "POST") {
-    return createPost(env, await readBody(request));
+    return createPost(env, await readBody(request), request);
   }
   if (parts.length === 2 && parts[0] === "posts" && method === "GET") {
     return getPost(env, parts[1]);
@@ -256,7 +274,7 @@ export async function handle(request, env) {
     return publicMessages();
   }
   if (parts.length === 3 && parts[0] === "posts" && parts[2] === "messages" && method === "POST") {
-    return createFirstMessage(env, parts[1], await readBody(request));
+    return createFirstMessage(env, parts[1], await readBody(request), request);
   }
   if (parts.length === 3 && parts[0] === "posts" && parts[2] === "waiting" && method === "POST") {
     return waitingMessages(env, parts[1], await readBody(request));
@@ -267,11 +285,14 @@ export async function handle(request, env) {
   if (parts.length === 3 && parts[0] === "messages" && parts[2] === "thread" && method === "POST") {
     return claimThread(env, parts[1], await readBody(request));
   }
-  if (parts.length === 2 && parts[0] === "threads" && method === "GET") {
-    return getThread(env, parts[1]);
+  if (parts.length === 1 && parts[0] === "threads" && method === "POST") {
+    return getThread(env, await readBody(request));
   }
-  if (parts.length === 3 && parts[0] === "threads" && parts[2] === "messages" && method === "POST") {
-    return createLaterMessage(env, parts[1], await readBody(request));
+  if (parts.length === 2 && parts[0] === "threads" && parts[1] === "messages" && method === "POST") {
+    return createLaterMessage(env, await readBody(request));
+  }
+  if (parts[0] === "threads") {
+    return error("not_found", 404);
   }
 
   return error("not_found", 404);

@@ -7,7 +7,7 @@ export default {
     const url = new URL(request.url);
     if (isMcpPath(url.pathname)) {
       return handleMcp(request, {
-        client: createInProcessListClient((listRequest) => handle(listRequest, env)),
+        client: createInProcessListClient((listRequest) => handle(listRequest, env), request),
       });
     }
     return handle(request, env);
