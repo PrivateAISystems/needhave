@@ -363,28 +363,6 @@ assert.equal(otherGuess.data.error, "not_found");
 assert.equal(leak(otherGuess.data, "library"), false);
 ok("a different replier cannot read that thread");
 
-const batch = [];
-for (let i = 0; i < MAX_POSTS_PER_IP + 2; i++) {
-  batch.push({
-    jsonrpc: "2.0",
-    id: 200 + i,
-    method: "tools/call",
-    params: {
-      name: "create_need",
-      arguments: { note: `Need a batch flood note ${i} for the per-ip cap` },
-    },
-  });
-}
-const batched = await mcp(batch, { headers: { "cf-connecting-ip": "198.51.100.77" } });
-assert.equal(batched.status, 200);
-assert.equal(Array.isArray(batched.json), true);
-const batchPayloads = batched.json.map((item) => JSON.parse(item.result.content[0].text));
-const batchOk = batchPayloads.filter((item) => item.id && item.secret);
-const batchLimited = batchPayloads.filter((item) => item.error === "rate_limited");
-assert.equal(batchOk.length, MAX_POSTS_PER_IP);
-assert.equal(batchLimited.length, 2);
-ok("MCP JSON-RPC batch cannot skip the per-ip create-post limit");
-
 const unknownTool = await mcp({
   jsonrpc: "2.0",
   id: 99,
@@ -416,6 +394,28 @@ const stillListJson = await stillList.json();
 assert.equal(stillListJson.posts.length, 2);
 assert.equal("secret" in stillListJson.posts[0], false);
 ok("the Worker still serves the same JSON list");
+
+const batch = [];
+for (let i = 0; i < MAX_POSTS_PER_IP + 2; i++) {
+  batch.push({
+    jsonrpc: "2.0",
+    id: 200 + i,
+    method: "tools/call",
+    params: {
+      name: "create_need",
+      arguments: { note: `Need a batch flood note ${i} for the per-ip cap` },
+    },
+  });
+}
+const batched = await mcp(batch, { headers: { "cf-connecting-ip": "198.51.100.77" } });
+assert.equal(batched.status, 200);
+assert.equal(Array.isArray(batched.json), true);
+const batchPayloads = batched.json.map((item) => JSON.parse(item.result.content[0].text));
+const batchOk = batchPayloads.filter((item) => item.id && item.secret);
+const batchLimited = batchPayloads.filter((item) => item.error === "rate_limited");
+assert.equal(batchOk.length, MAX_POSTS_PER_IP);
+assert.equal(batchLimited.length, 2);
+ok("MCP JSON-RPC batch cannot skip the per-ip create-post limit");
 
 const stdio = await new Promise((resolve, reject) => {
   const server = createServer(async (req, res) => {
