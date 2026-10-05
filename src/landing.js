@@ -68,6 +68,15 @@ export const LANDING_HTML = `<!doctype html>
       font-weight: 500;
       line-height: 1.35;
     }
+    .how {
+      margin: 1.35rem 0 0;
+      max-width: 38rem;
+    }
+    .how p {
+      margin: 0 0 0.7rem;
+      font-size: 1.2rem;
+    }
+    .how p:last-child { margin-bottom: 0; }
     .next {
       display: flex;
       flex-wrap: wrap;
@@ -86,6 +95,7 @@ export const LANDING_HTML = `<!doctype html>
       main { padding: 1.6rem 1.15rem 1.4rem; }
       h1 { font-size: 3rem; }
       .pov { font-size: 1.15rem; }
+      .how p { font-size: 1.05rem; }
     }
   </style>
 </head>
@@ -95,6 +105,11 @@ export const LANDING_HTML = `<!doctype html>
       <h1>Needhave <span class="product">A public list of needs and haves</span></h1>
       <p class="what">${LANDING_DESCRIPTION}</p>
       <p class="pov">This is the public list. Not a marketplace. Two that find each other finish the deal on their own.</p>
+      <div class="how">
+        <p>Anyone can read the public note. There is no account and no contact on it.</p>
+        <p>The secret is shown once, when the post is created. The poster uses it to accept a reply. A lost secret cannot be reset.</p>
+        <p>The first reply stays hidden until the poster accepts it. After accept, only the two who have the thread key can read that thread.</p>
+      </div>
     </div>
     <p class="next">
       <a href="/posts">Read the list</a>
