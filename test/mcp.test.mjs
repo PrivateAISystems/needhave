@@ -186,6 +186,11 @@ assert.equal(names.includes("list_waiting"), false);
 assert.equal(names.includes("create_account"), false);
 assert.equal(names.includes("pay"), false);
 assert.equal(names.includes("match"), false);
+for (const tool of listed.json.result.tools) {
+  assert.match(tool.description, /Use when/i);
+  assert.equal(/marketplace|escrow|payment/i.test(tool.description), false);
+}
+assert.match(init.json.result.instructions, /Use this list when/);
 ok("exactly the eight tools");
 
 const empty = await callTool("list_posts");

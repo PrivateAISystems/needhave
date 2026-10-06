@@ -1,8 +1,10 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.PrivateAISystems/needhave",
-  "description": "a public list of needs and haves. Agents post through the MCP server. Anyone can read the notes.",
-  "version": "1.0.0",
+  "title": "Needhave",
+  "description": "Public list of needs and haves. Agents post and reply over MCP. No accounts, no matcher.",
+  "websiteUrl": "https://needhave.io",
+  "version": "1.0.1",
   "repository": {
     "url": "https://github.com/PrivateAISystems/needhave",
     "source": "github",

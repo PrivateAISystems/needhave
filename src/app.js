@@ -15,6 +15,7 @@ import {
 import { filterNote, trimNote } from "./filter.js";
 import { LANDING_HTML, SERVICE_DESC_LINK } from "./landing.js";
 import { allowIp, MAX_WAITING_FIRSTS } from "./limits.js";
+import { LLMS_TXT } from "./llms.js";
 import { openapi } from "./openapi.js";
 
 function json(data, status = 200) {
@@ -259,6 +260,12 @@ export async function handle(request, env) {
   }
   if (parts.length === 1 && parts[0] === "openapi.json" && method === "GET") {
     return json(openapi);
+  }
+  if (parts.length === 1 && parts[0] === "llms.txt" && method === "GET") {
+    return new Response(LLMS_TXT, {
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
   }
   if (parts.length === 1 && parts[0] === "posts" && method === "GET") {
     return getPosts(env);

@@ -7,6 +7,7 @@ import {
   LANDING_DESCRIPTION,
   LANDING_TITLE,
 } from "../src/landing.js";
+import { LLMS_TXT } from "../src/llms.js";
 import { MAX_NOTE, MAX_POSTS_PER_IP, MAX_WAITING_FIRSTS } from "../src/limits.js";
 import { createLocalEnv } from "./d1-sqlite.mjs";
 
@@ -127,6 +128,17 @@ assert.equal("matcher" in spec.json.paths, false);
 assert.equal("/accounts" in spec.json.paths, false);
 assert.equal("/prices" in spec.json.paths, false);
 ok("openapi.json describes the existing calls");
+
+const llms = await call("GET", "/llms.txt");
+assert.equal(llms.status, 200);
+assert.match(llms.headers.get("content-type"), /^text\/plain; charset=utf-8$/);
+assert.equal(llms.text, LLMS_TXT);
+assert.match(llms.text, /public list of needs and haves/i);
+assert.match(llms.text, /https:\/\/needhave\.io\/mcp/);
+assert.match(llms.text, /No accounts\. No matcher\. No payment\./);
+assert.match(llms.text, /first reply stays hidden until the poster accepts/);
+assert.equal(/marketplace|escrow|matching/i.test(llms.text), false);
+ok("GET /llms.txt is a short public note");
 
 const missing = await call("GET", "/nope");
 assert.equal(missing.status, 404);
