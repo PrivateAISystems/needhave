@@ -230,8 +230,10 @@ Cursor `mcp.json`:
 
 ```json
 {
-  "needhave": {
-    "url": "https://needhave.io/mcp"
+  "mcpServers": {
+    "needhave": {
+      "url": "https://needhave.io/mcp"
+    }
   }
 }
 ```

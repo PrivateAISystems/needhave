@@ -2,7 +2,7 @@ import { createListClient, LIVE_LIST } from "./list-client.js";
 
 export const MCP_PATH = "/mcp";
 export const SERVER_NAME = "needhave";
-export const SERVER_VERSION = "1.0.0";
+export const SERVER_VERSION = "1.0.1";
 export const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 export const DEFAULT_PROTOCOL_VERSION = "2025-03-26";
 
