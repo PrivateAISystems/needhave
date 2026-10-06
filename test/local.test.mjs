@@ -4,10 +4,24 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
 import {
+  API_CATALOG,
+  API_CATALOG_TYPE,
+  AUTH_MD,
+  CONTENT_SIGNAL,
+  DISCOVERY_LINK,
+  LANDING_MD,
+  MCP_SERVER_CARD,
+  NEEDHAVE_SKILL_MD,
+  ROBOTS_TXT,
+  SITEMAP_XML,
+  skillIndex,
+} from "../src/discovery.js";
+import {
   LANDING_DESCRIPTION,
   LANDING_TITLE,
 } from "../src/landing.js";
 import { LLMS_TXT } from "../src/llms.js";
+import { TOOLS } from "../src/mcp.js";
 import { MAX_NOTE, MAX_POSTS_PER_IP, MAX_WAITING_FIRSTS } from "../src/limits.js";
 import { createLocalEnv } from "./d1-sqlite.mjs";
 
@@ -46,10 +60,19 @@ function leak(payload, fragment) {
 const home = await call("GET", "/");
 assert.equal(home.status, 200);
 assert.match(home.headers.get("content-type"), /^text\/html; charset=utf-8$/);
+assert.equal(home.headers.get("link"), DISCOVERY_LINK);
 assert.match(
   home.headers.get("link"),
   /<\/openapi\.json>; rel="service-desc"; type="application\/openapi\+json"/,
 );
+assert.match(
+  home.headers.get("link"),
+  /<\/\.well-known\/mcp\/server-card\.json>; rel="service-doc"/,
+);
+assert.equal(/<\/mcp>; rel="service-doc"/.test(home.headers.get("link")), false);
+assert.match(home.headers.get("link"), /<\/posts>/);
+assert.match(home.headers.get("link"), /<\/llms\.txt>/);
+assert.equal(home.headers.get("content-signal"), CONTENT_SIGNAL);
 assert.equal(home.text.includes(`<title>${LANDING_TITLE}</title>`), true);
 assert.equal(home.text.includes(`<meta name="description" content="${LANDING_DESCRIPTION}">`), true);
 assert.match(home.text, /<meta name="robots" content="index, follow">/);
@@ -137,8 +160,89 @@ assert.match(llms.text, /public list of needs and haves/i);
 assert.match(llms.text, /https:\/\/needhave\.io\/mcp/);
 assert.match(llms.text, /No accounts\. No matcher\. No payment\./);
 assert.match(llms.text, /first reply stays hidden until the poster accepts/);
+assert.match(llms.text, /https:\/\/needhave\.io\/auth\.md/);
 assert.equal(/marketplace|escrow|matching/i.test(llms.text), false);
 ok("GET /llms.txt is a short public note");
+
+const robots = await call("GET", "/robots.txt");
+assert.equal(robots.status, 200);
+assert.match(robots.headers.get("content-type"), /^text\/plain; charset=utf-8$/);
+assert.equal(robots.text, ROBOTS_TXT);
+assert.match(robots.text, /User-agent: \*/);
+assert.match(robots.text, /Allow: \//);
+assert.match(robots.text, /Content-Signal: search=yes, ai-input=yes, ai-train=yes/);
+assert.equal(/ai-train=no/.test(robots.text), false);
+assert.match(robots.text, /User-agent: GPTBot/);
+assert.match(robots.text, /User-agent: OAI-SearchBot/);
+assert.match(robots.text, /Sitemap: https:\/\/needhave\.io\/sitemap\.xml/);
+ok("GET /robots.txt allows crawlers and sets content signals");
+
+const sitemap = await call("GET", "/sitemap.xml");
+assert.equal(sitemap.status, 200);
+assert.match(sitemap.headers.get("content-type"), /^application\/xml; charset=utf-8$/);
+assert.equal(sitemap.text, SITEMAP_XML);
+assert.match(sitemap.text, /<loc>https:\/\/needhave\.io\/<\/loc>/);
+assert.match(sitemap.text, /<loc>https:\/\/needhave\.io\/posts<\/loc>/);
+assert.equal(/\/posts\//.test(sitemap.text), false);
+ok("GET /sitemap.xml lists public pages only");
+
+const mdHome = await call("GET", "/", undefined, { accept: "text/markdown" });
+assert.equal(mdHome.status, 200);
+assert.match(mdHome.headers.get("content-type"), /^text\/markdown; charset=utf-8$/);
+assert.equal(mdHome.text, LANDING_MD);
+assert.match(mdHome.headers.get("x-markdown-tokens"), /^\d+$/);
+assert.equal(mdHome.headers.get("vary"), "accept");
+const indexMd = await call("GET", "/index.md");
+assert.equal(indexMd.status, 200);
+assert.equal(indexMd.text, LANDING_MD);
+ok("GET / negotiates markdown");
+
+const auth = await call("GET", "/auth.md");
+assert.equal(auth.status, 200);
+assert.match(auth.headers.get("content-type"), /^text\/markdown; charset=utf-8$/);
+assert.equal(auth.text, AUTH_MD);
+assert.match(auth.text, /# Needhave auth\.md/);
+assert.match(auth.text, /no accounts and no login/i);
+assert.match(auth.text, /intentionally not provided/);
+assert.match(auth.text, /"claim_uri": null/);
+assert.equal(/claim_uri": "https:\/\/needhave\.io\/posts"/.test(auth.text), false);
+assert.equal(/authorization_endpoint|oauth\/authorize|client_id/i.test(auth.text), false);
+ok("GET /auth.md says there is no login");
+
+const catalog = await call("GET", "/.well-known/api-catalog");
+assert.equal(catalog.status, 200);
+assert.equal(catalog.headers.get("content-type"), API_CATALOG_TYPE);
+assert.deepEqual(catalog.json, API_CATALOG);
+assert.equal(catalog.json.linkset.length, 2);
+assert.equal(catalog.json.linkset[0].anchor, "https://needhave.io/posts");
+assert.equal(catalog.json.linkset[1].anchor, "https://needhave.io/mcp");
+ok("GET /.well-known/api-catalog is the RFC 9727 linkset");
+
+const card = await call("GET", "/.well-known/mcp/server-card.json");
+assert.equal(card.status, 200);
+assert.deepEqual(card.json, MCP_SERVER_CARD);
+assert.equal(card.json.serverInfo.name, "needhave");
+assert.equal(card.json.transport.endpoint, "/mcp");
+assert.equal(card.json.authentication.required, false);
+assert.deepEqual(
+  card.json.tools.map((tool) => tool.name),
+  TOOLS.map((tool) => tool.name),
+);
+const cardAlias = await call("GET", "/.well-known/mcp.json");
+assert.deepEqual(cardAlias.json, card.json);
+ok("GET MCP server card describes the existing server");
+
+const skills = await call("GET", "/.well-known/agent-skills/index.json");
+assert.equal(skills.status, 200);
+assert.deepEqual(skills.json, await skillIndex());
+assert.equal(skills.json.skills.length, 1);
+assert.equal(skills.json.skills[0].name, "needhave");
+const skill = await call("GET", "/.well-known/agent-skills/needhave/SKILL.md");
+assert.equal(skill.status, 200);
+assert.equal(skill.text, NEEDHAVE_SKILL_MD);
+assert.match(skill.text, /list_posts/);
+assert.equal(/marketplace|escrow|create_account|oauth/i.test(skill.text), false);
+ok("GET agent skill describes the existing MCP only");
 
 const missing = await call("GET", "/nope");
 assert.equal(missing.status, 404);
