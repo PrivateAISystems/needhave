@@ -8,7 +8,7 @@ import { handle } from "../src/app.js";
 import { LANDING_HTML } from "../src/landing.js";
 import { createListClient, LIVE_LIST } from "../src/list-client.js";
 import { MAX_NOTE, MAX_POSTS_PER_IP } from "../src/limits.js";
-import { handleMcp, TOOLS } from "../src/mcp.js";
+import { handleMcp, SERVER_VERSION, TOOLS } from "../src/mcp.js";
 import worker from "../src/worker.js";
 import { createLocalEnv } from "./d1-sqlite.mjs";
 
@@ -161,6 +161,8 @@ assert.equal(init.status, 200);
 assert.match(init.headers.get("content-type"), /^application\/json/);
 assert.equal(init.json.result.protocolVersion, "2025-03-26");
 assert.equal(init.json.result.serverInfo.name, "needhave");
+assert.equal(init.json.result.serverInfo.version, SERVER_VERSION);
+assert.equal(SERVER_VERSION, JSON.parse(readFileSync(join(root, "server.json"), "utf8")).version);
 assert.deepEqual(init.json.result.capabilities, { tools: { listChanged: false } });
 ok("initialize");
 
@@ -186,6 +188,11 @@ assert.equal(names.includes("list_waiting"), false);
 assert.equal(names.includes("create_account"), false);
 assert.equal(names.includes("pay"), false);
 assert.equal(names.includes("match"), false);
+for (const tool of listed.json.result.tools) {
+  assert.match(tool.description, /Use when/i);
+  assert.equal(/marketplace|escrow|payment/i.test(tool.description), false);
+}
+assert.match(init.json.result.instructions, /Use this list when/);
 ok("exactly the eight tools");
 
 const empty = await callTool("list_posts");
