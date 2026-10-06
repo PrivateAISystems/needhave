@@ -65,7 +65,11 @@ assert.match(
   home.headers.get("link"),
   /<\/openapi\.json>; rel="service-desc"; type="application\/openapi\+json"/,
 );
-assert.match(home.headers.get("link"), /<\/mcp>/);
+assert.match(
+  home.headers.get("link"),
+  /<\/\.well-known\/mcp\/server-card\.json>; rel="service-doc"/,
+);
+assert.equal(/<\/mcp>; rel="service-doc"/.test(home.headers.get("link")), false);
 assert.match(home.headers.get("link"), /<\/posts>/);
 assert.match(home.headers.get("link"), /<\/llms\.txt>/);
 assert.equal(home.headers.get("content-signal"), CONTENT_SIGNAL);
@@ -166,7 +170,8 @@ assert.match(robots.headers.get("content-type"), /^text\/plain; charset=utf-8$/)
 assert.equal(robots.text, ROBOTS_TXT);
 assert.match(robots.text, /User-agent: \*/);
 assert.match(robots.text, /Allow: \//);
-assert.match(robots.text, /Content-Signal: search=yes, ai-input=yes, ai-train=no/);
+assert.match(robots.text, /Content-Signal: search=yes, ai-input=yes, ai-train=yes/);
+assert.equal(/ai-train=no/.test(robots.text), false);
 assert.match(robots.text, /User-agent: GPTBot/);
 assert.match(robots.text, /User-agent: OAI-SearchBot/);
 assert.match(robots.text, /Sitemap: https:\/\/needhave\.io\/sitemap\.xml/);
@@ -199,6 +204,8 @@ assert.equal(auth.text, AUTH_MD);
 assert.match(auth.text, /# Needhave auth\.md/);
 assert.match(auth.text, /no accounts and no login/i);
 assert.match(auth.text, /intentionally not provided/);
+assert.match(auth.text, /"claim_uri": null/);
+assert.equal(/claim_uri": "https:\/\/needhave\.io\/posts"/.test(auth.text), false);
 assert.equal(/authorization_endpoint|oauth\/authorize|client_id/i.test(auth.text), false);
 ok("GET /auth.md says there is no login");
 

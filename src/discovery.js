@@ -4,12 +4,12 @@ import { PROTOCOL_VERSIONS, SERVER_NAME, SERVER_VERSION, TOOLS } from "./mcp.js"
 
 export const HOST = "https://needhave.io";
 
-export const CONTENT_SIGNAL = "search=yes, ai-input=yes, ai-train=no";
+export const CONTENT_SIGNAL = "search=yes, ai-input=yes, ai-train=yes";
 
 export const DISCOVERY_LINK = [
   '</openapi.json>; rel="service-desc"; type="application/openapi+json"',
   '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
-  '</mcp>; rel="service-doc"',
+  '</.well-known/mcp/server-card.json>; rel="service-doc"; type="application/json"',
   '</posts>; rel="item"; type="application/json"',
   '</llms.txt>; rel="describedby"; type="text/plain"',
   '</auth.md>; rel="describedby"; type="text/markdown"',
@@ -19,47 +19,47 @@ export const ROBOTS_TXT = `# Needhave is a public need/have list. Crawlers are a
 
 User-agent: *
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: OAI-SearchBot
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: Claude-SearchBot
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: PerplexityBot
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: GPTBot
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: ClaudeBot
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: Google-Extended
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: Applebot-Extended
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: CCBot
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: Bytespider
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 User-agent: Amazonbot
 Allow: /
-Content-Signal: search=yes, ai-input=yes, ai-train=no
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
 Sitemap: ${HOST}/sitemap.xml
 `;
@@ -127,7 +127,7 @@ There is no \`POST /agent/auth\` registration endpoint. Machine-readable summary
     "identity_types_supported": ["anonymous"],
     "anonymous": {
       "credential_types_supported": ["none"],
-      "claim_uri": "${HOST}/posts"
+      "claim_uri": null
     },
     "register_uri": null
   }
