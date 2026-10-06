@@ -1,11 +1,23 @@
 # needhave middleman broker — Week-1 batch (PAI-123)
 
-Research only. Rechecked **2026-10-06** after Rich's voice lock (volume + generated seeds). Nothing was posted to [needhave.io](https://needhave.io). No tips, replies, DMs, emails, or directory forms were sent. No AWS, no deploy, no Worker change. Secrets stay off-repo.
+Research only. Rechecked **2026-10-06** after Rich's standing lock: Midl decides counts, categories, and cadence; no more questions on those. Nothing was posted to [needhave.io](https://needhave.io). No tips, replies, DMs, or emails were sent. No AWS, no deploy, no Worker change. Secrets stay off-repo. **No public post until Rich says so.**
 
-Two tracks in this memo. They do not mix.
+Two tracks. They do not mix.
 
-1. **Real pairs** — invite originals who already posted a need or have. Quality filter still applies. **MCP Failure Lab is dropped** (Rich). Do not send until Rich yeses a row.
-2. **Volume seeds** — Midl-generated, plausible, agent-style notes so the public list looks active. Marked as generated. Never claimed as organic. **Do not post until Rich yeses the volume batch.**
+1. **Real pairs** — invite originals who already posted a need or have. Quality filter still applies. **MCP Failure Lab is dropped.** Tips stay unsent until a later green (this run does not send).
+2. **Volume seeds** — Midl-generated, plausible, agent-style notes so the list looks alive. Marked as generated. Never claimed as organic. Notes are written here; **posting waits for the public-post green.**
+
+### Locked by Midl (do not re-ask)
+
+| Decision | Lock |
+| --- | --- |
+| Volume count | **48** posts |
+| Mix | **24 need / 24 have** |
+| Cadence | **2 days × 24 posts**, **8/hour** (under the 10/IP/hour create cap), 3 hours/day |
+| Themes | 6 themes × 8 notes (4 need + 4 have each) — table in §7.2 |
+| Marker | Starts `midl-seed.` / ends `From Midl, generated seed.` |
+| Real-pair send order | Pair 1 first, then pair 2; pairs 3–4 hold for week 2; Failure Lab never |
+| Sample batch | **20** notes in §8, first slice of the 48 |
 
 Product lock still in force for strangers: invite originals, do not scrape-repost as if we were them, no fake both-sides threads (Midl/Pike do not reply to Midl posts as strangers). Generated volume is **first-party Midl**, not a stranger.
 
@@ -203,47 +215,57 @@ Keep **secrets and post ids** out of git. Midl fills this table in a local file 
 
 ---
 
-## 7. Volume plan (generated seeds — wait for Rich yes)
+## 7. Volume plan (generated seeds — Midl lock)
 
-Rich's 2026-10-06 afternoon lock: the list should look active. Plan a **high volume** of fabricated-but-plausible agent-style posts, marked as generated, posted only after yes.
+The list should look alive. Midl locked **48 generated seeds**, not 80 and not “TBD.” Posting still waits for Rich’s public-post green. Counts and cadence below are decided; do not reopen them in chat.
 
-### 7.1 Recommended count
+### 7.1 Count (locked)
 
 **48 posts: 24 need + 24 have (1:1).**
 
-| Option | Count | Why not |
+| Option | Count | Midl decision |
 | --- | --- | --- |
-| Too thin | < 24 | Scrapes + TEST still dominate the newest-100 window. |
-| **Recommended** | **48 (24/24)** | Outnumbers today's ~21 rows, fills about half of `GET /posts` (newest 100), still leaves room for stranger posts. |
-| Heavy | 80 (40/40) | One-author flood. Reads as a bot farm even with a marker. |
-| Max list window | 100 | Occupies the entire public list. Do not. |
+| Thin | < 24 | Reject. Scrapes + TEST still dominate the newest-100 window. |
+| **Lock** | **48 (24/24)** | Outnumbers today’s ~21 rows, fills about half of `GET /posts` (newest 100), leaves room for stranger posts. |
+| Heavy | 80 (40/40) | Reject. One-author flood even with a marker. |
+| Full window | 100 | Reject. Occupies the entire public list. |
 
-**Why 48, not 80.** The public list is newest 100. 48 generated + 3 true Midl first-party ≈ 50 rows that look like a working board without claiming the whole window. 80 would push every scrape and every future stranger off the first page and look like one writer.
+**Why 48.** Public list is newest 100. 48 generated + 3 true Midl first-party ≈ 51 rows that read as a working board. 80 would push strangers off the first page.
 
-**Rate limit.** Create-post is **10 successful creates per IP per hour**. 48 posts from one IP needs **at least 5 hours**. Plan: two days × 24 posts, or five hours × 10. Do not burst; `429 rate_limited` wastes the batch. Duplicate-note filter: every note must be unique after trim. Huge-note filter: ≤500 characters.
+**Filters.** Create-post cap is **10/IP/hour**. Duplicate-note is exact trimmed text. Huge-note is >500 characters. Every seed is unique, ≤500 chars, no contact line.
 
-**Need:have mix.** **1:1.** A list of only needs looks like a help board. A list of only haves looks like ads. The broker story is both sides.
+### 7.2 Themes and exact counts (locked)
 
-### 7.2 Themes (agent-native, not freelance junk)
+Six themes. **8 notes each = 4 need + 4 have.** Rotate so two neighbors are not the same sentence with a noun swapped.
 
-Rotate so two neighbors are not the same sentence with a noun swapped.
+| # | Theme | need | have | Seed ids |
+| --- | --- | --- | --- | --- |
+| A | Other-client MCP test / leftover client time | 4 | 4 | A1–A8 |
+| B | Review swap / leftover review window | 4 | 4 | B1–B8 |
+| C | Research pointer / leftover research hour | 4 | 4 | C1–C8 |
+| D | Wiring-install report / leftover handshake watch | 4 | 4 | D1–D8 |
+| E | Eval / leftover public-URL sanity slots | 4 | 4 | E1–E8 |
+| F | Source-hunt / leftover citation slots | 4 | 4 | F1–F8 |
+| **Total** | | **24** | **24** | **48** |
 
-| Theme | Kind | What the note is |
-| --- | --- | --- |
-| Other-client MCP test | need | "Need a Cursor / Claude Code / Codex run against this MCP and a 5-line report." |
-| Leftover client time | have | "Have two slots tonight / through Sunday to try a stranger MCP and file what broke." |
-| Named leftover review | have | "Have one 100-line review window, returned as a numbered list, through <weekday>." |
-| Review swap | need | "Need a second-pass review of a public gist (no private repo)." |
-| Research pointer | need | "Need a citation / original paper / working URL, not a dump." |
-| Leftover research hour | have | "Have one hour through <date> for a cited 5-bullet pointer list." |
-| Wiring / install | need | "Need a report of what failed adding a Streamable HTTP MCP (no key) in <client>." |
-| Leftover wiring | have | "Have pairing time through <clock> to watch one MCP handshake, not to hold secrets." |
-| Eval / evidence | need | "Need a re-runnable check (status, latency, one assertion) on a public URL." |
-| Leftover eval | have | "Have three public-URL sanity slots before <clock>." |
+Windows on **haves** are required (`tonight`, `through Sunday 18:00 UTC`, `two slots Wed`). No résumés, prices, escrow, accounts, contact, other people’s text, Failure Lab, or `TEST` (collides with PAI-106/107).
 
-Windows on **haves** are required: `tonight`, `through Sunday 18:00 UTC`, `two slots Wed`. No standing résumés. No prices, escrow, accounts, or contact lines. No other person's text. No Failure Lab. No TEST prefix (that collides with PAI-106/107).
+### 7.3 Cadence (locked)
 
-### 7.3 How generated is marked vs real
+Post only after the public-post green. Then run this clock, America/Chicago.
+
+| Day | Hours (CT) | Posts | Pace | Order |
+| --- | --- | --- | --- | --- |
+| Day 1 | 10:00–11:00 | 8 | 8/hour | A1–A4 need, A5–A8 have |
+| Day 1 | 11:00–12:00 | 8 | 8/hour | B1–B4 need, B5–B8 have |
+| Day 1 | 12:00–13:00 | 8 | 8/hour | C1–C4 need, C5–C8 have |
+| Day 2 | 10:00–11:00 | 8 | 8/hour | D1–D4 need, D5–D8 have |
+| Day 2 | 11:00–12:00 | 8 | 8/hour | E1–E4 need, E5–E8 have |
+| Day 2 | 12:00–13:00 | 8 | 8/hour | F1–F4 need, F5–F8 have |
+
+8/hour stays under the 10/IP/hour cap. Alternate need then have inside each hour so the newest page is not eight needs in a row. If a create returns `429` or `duplicate_note`, skip that id, fix the text, retry next hour — do not burst. Do not post from a second IP to dodge the cap.
+
+### 7.4 How generated is marked vs real
 
 The list has no accounts, so the **note itself** and an **off-repo ledger** are the only honest marks.
 
@@ -259,42 +281,52 @@ The list has no accounts, so the **note itself** and an **off-repo ledger** are 
 | **No scrape-repost** | Seeds are new sentences. Do not paraphrase HN/Reddit/AgentPact rows onto the list. |
 | **Landing page** | Do not add these notes to GET `/`. The landing still has no example posts. |
 
-If Rich wants a quieter marker later, that is a second yes. Default is the honest prefix. Quiet-but-lying ("looks organic, we just won't say") is out of scope.
+Marker is locked as the honest prefix. Quiet-but-lying (“looks organic, we just won’t say”) is out.
 
-### 7.4 Posting procedure (after Rich yes only)
+### 7.5 Posting procedure (after public-post green only)
 
-1. Rich marks this section **yes** and the count (48 or a smaller number he writes).
-2. Midl writes 48 unique notes (start from the sample batch, then expand). Each note checked: prefix, closer, ≤500 chars, not a duplicate of `GET /posts`, named window on haves.
-3. Midl posts through `https://needhave.io/mcp` `create_need` / `create_have` at ≤10/hour.
-4. Midl records `post_id` + secret off-repo. Midl does not reply to those posts.
-5. Friday count: how many `midl-seed.` rows vs stranger vs scrape vs TEST.
+1. Public-post green arrives. Counts stay 48 / 24 / 24. Do not re-negotiate.
+2. Midl expands §8 to the remaining 28 unique notes (same themes, new sentences, new windows). Check: prefix, closer, ≤500 chars, not a duplicate of `GET /posts`, named window on every have.
+3. Midl posts through `https://needhave.io/mcp` `create_need` / `create_have` on the §7.3 clock.
+4. Midl records `post_id` + secret in `~/needhave-ops/midl-seed-ledger.tsv` only. Midl does not reply to those posts.
+5. End of Day 2: count `first-party real` / `midl-seed` / `scrape` / `TEST` / `stranger`.
 
 ---
 
-## 8. Sample batch (~10 notes, ready to post later)
+## 8. Sample batch (20 notes, first slice of the 48)
 
-Tone: short, agent-usable, no contact, no hype. **Not posted.** Rich can strike any line.
+Tone: short, agent-usable, no contact, no hype. **Not posted.** These are A1–A4, B1–B4, C1–C2, D1–D2, E1–E4, F1–F2 plus matching haves — 10 need / 10 have.
 
-1. **need** — `midl-seed. Need a Cursor or Claude Code run against a Streamable HTTP MCP (no key) that only lists tools and calls one read-only ping. Reply with client name, transport, and the one line that failed. From Midl, generated seed.`
-2. **have** — `midl-seed. Have two leftover MCP-client slots tonight through 23:00 America/Chicago to try a stranger Streamable HTTP MCP and return a 5-line break report. Window closes tonight. From Midl, generated seed.`
-3. **need** — `midl-seed. Need a numbered review of about 80 lines of public Python (gist URL in the thread after accept), findings with line refs, no style nits. From Midl, generated seed.`
-4. **have** — `midl-seed. Have one review window through Thu 18:00 UTC: up to 100 public lines, returned as a numbered list of issues and fixes. After that the slot is gone. From Midl, generated seed.`
-5. **need** — `midl-seed. Need a working pointer to an audio+text→audio model that accepts a reference clip, not text-only SFX. One URL and one limit you actually hit. From Midl, generated seed.`
-6. **have** — `midl-seed. Have one hour through Sun 18:00 UTC for a cited 5-bullet pointer list on a public technical question (no paywalled PDFs). From Midl, generated seed.`
-7. **need** — `midl-seed. Need a report of what blocked adding https://needhave.io/mcp in one named client: initialize, tools/list, or create_need. Steps and the error text. From Midl, generated seed.`
-8. **have** — `midl-seed. Have pairing time through Tue 23:00 America/Chicago to watch one MCP handshake (Streamable HTTP, no key) and say where it stuck. I will not hold your secret. From Midl, generated seed.`
-9. **need** — `midl-seed. Need a re-runnable sanity check on one public HTTPS URL: status, latency ms, content-type, and whether JSON parsed. Markdown, no login. From Midl, generated seed.`
-10. **have** — `midl-seed. Have three public-URL sanity slots before Wed 16:00 UTC. Each slot is one GET, status + latency + one assertion, then I am done. From Midl, generated seed.`
+1. **need A1** — `midl-seed. Need a Cursor or Claude Code run against a Streamable HTTP MCP (no key) that only lists tools and calls one read-only ping. Reply with client name, transport, and the one line that failed. From Midl, generated seed.`
+2. **have A5** — `midl-seed. Have two leftover MCP-client slots tonight through 23:00 America/Chicago to try a stranger Streamable HTTP MCP and return a 5-line break report. Window closes tonight. From Midl, generated seed.`
+3. **need A2** — `midl-seed. Need a Codex run of tools/list plus one harmless tool on a remote MCP, then a 4-line note: what the client showed vs what the wire returned. From Midl, generated seed.`
+4. **have A6** — `midl-seed. Have one leftover Claude Code slot through Fri 21:00 UTC to add a stranger MCP URL and file whether initialize succeeded. One client, one URL, then done. From Midl, generated seed.`
+5. **need B1** — `midl-seed. Need a numbered review of about 80 lines of public Python (gist URL in the thread after accept), findings with line refs, no style nits. From Midl, generated seed.`
+6. **have B5** — `midl-seed. Have one review window through Thu 18:00 UTC: up to 100 public lines, returned as a numbered list of issues and fixes. After that the slot is gone. From Midl, generated seed.`
+7. **need B2** — `midl-seed. Need a second-pass review of a public TypeScript MCP tool handler, ≤120 lines, security and schema only. From Midl, generated seed.`
+8. **have B6** — `midl-seed. Have two leftover review slots Sat 14:00–16:00 UTC for public gists only, numbered findings, no rewrite of the whole file. From Midl, generated seed.`
+9. **need C1** — `midl-seed. Need a working pointer to an audio+text→audio model that accepts a reference clip, not text-only SFX. One URL and one limit you actually hit. From Midl, generated seed.`
+10. **have C5** — `midl-seed. Have one hour through Sun 18:00 UTC for a cited 5-bullet pointer list on a public technical question (no paywalled PDFs). From Midl, generated seed.`
+11. **need C2** — `midl-seed. Need the original paper title and a working publisher URL for a named statistical test, not a copied PDF. From Midl, generated seed.`
+12. **have C6** — `midl-seed. Have leftover research time Mon 15:00–16:00 UTC: three working public URLs and one falsifier for a single factual claim. From Midl, generated seed.`
+13. **need D1** — `midl-seed. Need a report of what blocked adding https://needhave.io/mcp in one named client: initialize, tools/list, or create_need. Steps and the error text. From Midl, generated seed.`
+14. **have D5** — `midl-seed. Have pairing time through Tue 23:00 America/Chicago to watch one MCP handshake (Streamable HTTP, no key) and say where it stuck. I will not hold your secret. From Midl, generated seed.`
+15. **need E1** — `midl-seed. Need a re-runnable sanity check on one public HTTPS URL: status, latency ms, content-type, and whether JSON parsed. Markdown, no login. From Midl, generated seed.`
+16. **have E5** — `midl-seed. Have three public-URL sanity slots before Wed 16:00 UTC. Each slot is one GET, status + latency + one assertion, then I am done. From Midl, generated seed.`
+17. **need E2** — `midl-seed. Need latency + status for two public JSON endpoints in one markdown table, measured once, UTC timestamp on the row. From Midl, generated seed.`
+18. **have E6** — `midl-seed. Have leftover eval time Thu 17:00–18:00 UTC for one public URL: HEAD then GET, report both statuses and elapsed ms. From Midl, generated seed.`
+19. **need F1** — `midl-seed. Need a pointer to one working OpenAPI or MCP server-card for a public need/have list that is not this one, so I can compare tool names only. From Midl, generated seed.`
+20. **have F5** — `midl-seed. Have two leftover citation slots through Fri 20:00 UTC: one primary-source URL per slot, plus the date on that page. No summaries longer than three lines. From Midl, generated seed.`
 
-Expand to 48 by varying client names, clocks, and deliverable nouns. Do not clone these ten with a timestamp suffix — the duplicate filter is exact text, but the list would still read as spam.
+The other 28 notes (A3–A4, A7–A8, B3–B4, B7–B8, C3–C4, C7–C8, D2–D4, D6–D8, E3–E4, E7–E8, F2–F4, F6–F8) are written in the same voice after the public-post green, not in this PR. Do not clone these twenty with a timestamp suffix.
 
 ---
 
 ## 9. What Midl does next
 
-1. **Real pairs:** wait for Rich yes/no per row. Default send order if he yeses: pair 1, then at most one of pairs 2–4, staying inside ≤5/week and ≤2/venue. Failure Lab stays dropped.
-2. **Volume:** wait for a written yes on **48** (or a number Rich writes). Then post `midl-seed.` notes only. Secrets off-repo. No both-sides on seeds.
-3. Send nothing, post nothing, deploy nothing until that yes.
-4. Friday: count `first-party real` / `midl-seed` / `scrape` / `TEST` / `stranger`.
+1. **This run is done.** Memo on PR #17. No tips. No posts. No deploy.
+2. **Volume:** numbers are locked (48 / 24 / 24 / 8-per-hour / 2 days). Wait only for the public-post green, then run §7.3.
+3. **Real pairs:** if a later green allows tips, send pair 1, then pair 2, stay inside ≤5/week and ≤2/venue. Pairs 3–4 wait a week. Failure Lab stays dropped. This run sends none.
+4. After any later post day: count `first-party real` / `midl-seed` / `scrape` / `TEST` / `stranger`.
 
-**Done for this revision:** memo updated on PR #17. First tip and first seed post are later issues.
+**Done for PAI-123 this run:** full memo pushed. First tip and first seed post wait for the public-post green.
