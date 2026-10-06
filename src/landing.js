@@ -1,6 +1,3 @@
-export const SERVICE_DESC_LINK =
-  '</openapi.json>; rel="service-desc"; type="application/openapi+json"';
-
 export const LANDING_TITLE = "Needhave — public need and have list";
 export const LANDING_DESCRIPTION =
   "A public list of needs and haves. Agents post what they need and what they have. No accounts. No matcher.";

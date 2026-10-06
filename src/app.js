@@ -13,25 +13,67 @@ import {
   listWaitingFirsts,
 } from "./db.js";
 import { filterNote, trimNote } from "./filter.js";
-import { LANDING_HTML, SERVICE_DESC_LINK } from "./landing.js";
+import {
+  API_CATALOG,
+  API_CATALOG_TYPE,
+  AUTH_MD,
+  CONTENT_SIGNAL,
+  DISCOVERY_LINK,
+  LANDING_MD,
+  MCP_SERVER_CARD,
+  NEEDHAVE_SKILL_MD,
+  ROBOTS_TXT,
+  SITEMAP_XML,
+  markdownTokens,
+  skillIndex,
+  wantsMarkdown,
+} from "./discovery.js";
+import { LANDING_HTML } from "./landing.js";
 import { allowIp, MAX_WAITING_FIRSTS } from "./limits.js";
 import { LLMS_TXT } from "./llms.js";
 import { openapi } from "./openapi.js";
 
-function json(data, status = 200) {
+function json(data, status = 200, extra = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { "content-type": "application/json; charset=utf-8", ...extra },
   });
 }
 
-function html(body) {
+function text(body, type, extra = {}) {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": `${type}; charset=utf-8`,
+      "content-signal": CONTENT_SIGNAL,
+      ...extra,
+    },
+  });
+}
+
+function markdown(body, extra = {}) {
+  return text(body, "text/markdown", {
+    "x-markdown-tokens": markdownTokens(body),
+    ...extra,
+  });
+}
+
+function html(body, request) {
+  if (wantsMarkdown(request)) {
+    return markdown(LANDING_MD, {
+      link: DISCOVERY_LINK,
+      "x-robots-tag": "index, follow",
+      vary: "accept",
+    });
+  }
   return new Response(body, {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
-      link: SERVICE_DESC_LINK,
+      link: DISCOVERY_LINK,
       "x-robots-tag": "index, follow",
+      "content-signal": CONTENT_SIGNAL,
+      vary: "accept",
     },
   });
 }
@@ -256,16 +298,65 @@ export async function handle(request, env) {
   const method = request.method;
 
   if (parts.length === 0 && method === "GET") {
-    return html(LANDING_HTML);
+    return html(LANDING_HTML, request);
+  }
+  if (parts.length === 1 && parts[0] === "index.md" && method === "GET") {
+    return markdown(LANDING_MD);
+  }
+  if (parts.length === 1 && parts[0] === "robots.txt" && method === "GET") {
+    return text(ROBOTS_TXT, "text/plain");
+  }
+  if (parts.length === 1 && parts[0] === "sitemap.xml" && method === "GET") {
+    return text(SITEMAP_XML, "application/xml");
+  }
+  if (parts.length === 1 && parts[0] === "auth.md" && method === "GET") {
+    return markdown(AUTH_MD);
+  }
+  if (parts.length === 2 && parts[0] === ".well-known" && parts[1] === "api-catalog" && method === "GET") {
+    return new Response(JSON.stringify(API_CATALOG), {
+      status: 200,
+      headers: {
+        "content-type": API_CATALOG_TYPE,
+        "content-signal": CONTENT_SIGNAL,
+      },
+    });
+  }
+  if (parts.length === 2 && parts[0] === ".well-known" && parts[1] === "mcp.json" && method === "GET") {
+    return json(MCP_SERVER_CARD);
+  }
+  if (
+    parts.length === 3 &&
+    parts[0] === ".well-known" &&
+    parts[1] === "mcp" &&
+    parts[2] === "server-card.json" &&
+    method === "GET"
+  ) {
+    return json(MCP_SERVER_CARD);
+  }
+  if (
+    parts.length === 3 &&
+    parts[0] === ".well-known" &&
+    parts[1] === "agent-skills" &&
+    parts[2] === "index.json" &&
+    method === "GET"
+  ) {
+    return json(await skillIndex());
+  }
+  if (
+    parts.length === 4 &&
+    parts[0] === ".well-known" &&
+    parts[1] === "agent-skills" &&
+    parts[2] === "needhave" &&
+    parts[3] === "SKILL.md" &&
+    method === "GET"
+  ) {
+    return markdown(NEEDHAVE_SKILL_MD);
   }
   if (parts.length === 1 && parts[0] === "openapi.json" && method === "GET") {
     return json(openapi);
   }
   if (parts.length === 1 && parts[0] === "llms.txt" && method === "GET") {
-    return new Response(LLMS_TXT, {
-      status: 200,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+    return text(LLMS_TXT, "text/plain");
   }
   if (parts.length === 1 && parts[0] === "posts" && method === "GET") {
     return getPosts(env);
