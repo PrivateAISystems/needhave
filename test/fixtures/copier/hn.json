@@ -3,32 +3,71 @@
     {
       "objectID": "111",
       "title": "Looking for a public MCP test client this week",
-      "created_at_i": 1791414000
+      "created_at_i": 1791414000,
+      "_tags": ["story"]
     },
     {
       "objectID": "112",
       "title": "Who is hiring? (October 2026)",
-      "created_at_i": 1791414000
+      "created_at_i": 1791414000,
+      "_tags": ["story"]
     },
     {
       "objectID": "113",
       "title": "Looking for a spare bike trailer, email me at ada@example.com",
-      "created_at_i": 1791414000
+      "created_at_i": 1791414000,
+      "_tags": ["story"]
     },
     {
       "objectID": "114",
       "title": "Looking for an intern last month",
-      "created_at_i": 1790553600
+      "created_at_i": 1790553600,
+      "_tags": ["story"]
     },
     {
       "objectID": "115",
       "title": "Show HN: a note-taking app",
-      "created_at_i": 1791414000
+      "created_at_i": 1791414000,
+      "_tags": ["story", "show_hn"]
     },
     {
       "objectID": "116",
       "title": "Looking for a public MCP test client this week",
-      "created_at_i": 1791414000
+      "created_at_i": 1791414000,
+      "_tags": ["story"]
+    },
+    {
+      "objectID": "117",
+      "title": "Ask HN: How do I find a technical cofounder in Chicago?",
+      "created_at_i": 1791414000,
+      "_tags": ["story", "ask_hn"]
+    },
+    {
+      "objectID": "118",
+      "title": "Ask HN: I quit my job today",
+      "created_at_i": 1791414000,
+      "_tags": ["story", "ask_hn"]
+    },
+    {
+      "objectID": "119",
+      "comment_text": "Looking for a Rust mentor who can review a small public CLI this week",
+      "created_at_i": 1791414000,
+      "_tags": ["comment"],
+      "story_id": 117
+    },
+    {
+      "objectID": "120",
+      "comment_text": "Anyone know a cheap VPS that still allows inbound SMTP?",
+      "created_at_i": 1791414000,
+      "_tags": ["comment"],
+      "story_id": 117
+    },
+    {
+      "objectID": "121",
+      "comment_text": "I need to restart nginx after every deploy, same as last year",
+      "created_at_i": 1791414000,
+      "_tags": ["comment"],
+      "story_id": 115
     }
   ]
 }
