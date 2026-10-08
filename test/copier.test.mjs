@@ -9,6 +9,7 @@ import {
   isCommentNeed,
   isGithubJunk,
   isQuestionNeed,
+  isSeNeed,
   runCopier,
   sourceRequests,
   sourceSuffix,
@@ -340,8 +341,12 @@ ok("allowlisted sources use separate HN queries and official API hosts only");
 
 assert.equal(isQuestionNeed("How do I reverse a string in Python?"), true);
 assert.equal(isQuestionNeed("Can I stream a CSV from D1?"), true);
+assert.equal(isSeNeed("How do I reverse a string in Python?"), true);
+assert.equal(isSeNeed("Can I stream a CSV from D1 without buffering the whole file?"), true);
+assert.equal(isSeNeed("Why does TypeScript fail to infer a callback parameter?"), false);
 assert.equal(isAskNeed("Ask HN: How do I find a technical cofounder in Chicago?"), true);
 assert.equal(isAskNeed("Ask HN: I quit my job today"), false);
+assert.equal(isAskNeed("Ask HN: Are we losing control of AI?"), false);
 assert.equal(isCommentNeed("Looking for a Rust mentor"), true);
 assert.equal(isCommentNeed("I need to restart nginx after every deploy"), false);
 assert.equal(

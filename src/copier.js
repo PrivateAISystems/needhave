@@ -18,10 +18,14 @@ export const COPIER_USER_AGENT = "needhave-copier/1.0 (+https://needhave.io)";
 const NEED_RE =
   /\b(need|needed|needs|looking for|look for|seeking|wanted|help wanted|does anyone(?: have| know)|anyone (?:have|know|interested)|in search of|be my cofounder)\b/i;
 const SKIP_RE =
-  /\b(who is hiring|who wants to be hired|hiring thread|who'?s hiring|tell hn:|show hn:)\b/i;
+  /\b(who is hiring|who wants to be hired|hiring thread|who'?s hiring|tell hn:|show hn:|willing to relocate|looking for full-time|résumé\/cv|resume\/cv)\b/i;
 const ASK_RE = /^(ask hn:|ask:)/i;
 const QUESTION_RE =
   /^(how|what|why|when|where|which|who|is there|are there|can i|can we|does|do you|has anyone|anyone)\b/i;
+const SEEK_RE =
+  /\b(looking for|seeking|need|needed|needs|is there|are there|where can i|how (?:do|can) i|can (?:i|someone|anyone)|does anyone|anyone (?:have|know)|recommend|be my cofounder|in search of|what(?:'s| is) the best)\b/i;
+const SE_SEEK_RE =
+  /\b(looking for|is there|are there|can i|can we|how do i|how can i|does anyone|recommend|where can i|in search of)\b/i;
 const GH_BUSY_RE =
   /\b(typo|readme|add[- ]my[- ]name|add me as contributor|update readme)\b/i;
 const GH_STACK_RE = /traceback|stack trace|\berror:\s|exception\b|at [a-z0-9_$.]+\(/i;
@@ -85,7 +89,13 @@ export function isAskNeed(text) {
   const note = trimNote(decodeEntities(text));
   if (!note || SKIP_RE.test(note)) return false;
   const rest = note.replace(/^(ask hn:|ask:)\s*/i, "").trim();
-  return Boolean(rest) && isQuestionNeed(rest);
+  return Boolean(rest) && SEEK_RE.test(rest);
+}
+
+export function isSeNeed(text) {
+  const note = trimNote(decodeEntities(text));
+  if (!note || SKIP_RE.test(note)) return false;
+  return SE_SEEK_RE.test(note);
 }
 
 export function isCommentNeed(text) {
@@ -117,7 +127,7 @@ export function buildCopiedNote(item) {
 
 function acceptsSourceText(item, body) {
   if (item.source === "github") return true;
-  if (item.source === "stackexchange") return isQuestionNeed(body);
+  if (item.source === "stackexchange") return isSeNeed(body);
   if (item.kind === "ask") return isAskNeed(body);
   if (item.kind === "comment") return isCommentNeed(body);
   return isNeedText(body);
@@ -204,7 +214,9 @@ export function isGithubJunk(issue) {
   const body = issue.body || "";
   if (GH_BUSY_RE.test(`${title}\n${body}`)) return true;
   if (body.trim().length < 40) return true;
+  if (/^\[canary\]/i.test(title) || /\bboard-health\b/i.test(title)) return true;
   const blob = `${title}\n${body}`;
+  if (!GH_ASK_RE.test(blob)) return true;
   if (labels.includes("bug") && GH_STACK_RE.test(body) && !GH_ASK_RE.test(blob)) return true;
   if (labels.includes("good first issue") && !labels.includes("help wanted")) return true;
   if (isLowQualityRepo(issue)) return true;
