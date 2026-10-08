@@ -5,7 +5,8 @@
   "description": "Cloudflare Worker and public calls for the needhave list. The rows do not live here.",
   "scripts": {
     "test": "node --experimental-sqlite --no-warnings test/local.test.mjs && node --experimental-sqlite --no-warnings test/mcp.test.mjs && node --experimental-sqlite --no-warnings test/copier.test.mjs",
-    "mcp": "node src/mcp-stdio.js"
+    "mcp": "node src/mcp-stdio.js",
+    "copier:dry-run": "node --experimental-sqlite --no-warnings scripts/copier-dry-run.mjs --hours 24 --uncapped"
   },
   "engines": {
     "node": ">=22"

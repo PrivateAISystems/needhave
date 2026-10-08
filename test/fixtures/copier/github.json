@@ -2,22 +2,78 @@
   "items": [
     {
       "id": 7001,
-      "title": "Need a reviewer for the public docs build",
+      "title": "Document the public webhook retry policy",
       "html_url": "https://github.com/example/docs/issues/12",
-      "created_at": "2026-10-07T23:00:00Z"
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "We need a short public note that explains how webhook retries work so integrators can implement backoff without guessing.",
+      "labels": [{ "name": "help wanted" }],
+      "repository": { "stargazers_count": 12, "description": "Public docs" }
     },
     {
       "id": 7002,
       "title": "Need help on an old closed tracker",
       "html_url": "https://github.com/example/docs/issues/2",
-      "created_at": "2026-09-20T00:00:00Z"
+      "created_at": "2026-09-20T00:00:00Z",
+      "body": "This issue is old and should be ignored by the freshness window even though it still has a help wanted label.",
+      "labels": [{ "name": "help wanted" }]
     },
     {
       "id": 7003,
       "title": "Need a review on this pull request",
       "html_url": "https://github.com/example/docs/pull/44",
       "created_at": "2026-10-07T23:00:00Z",
-      "pull_request": { "url": "https://api.github.com/repos/example/docs/pulls/44" }
+      "body": "Please review the pull request that adds the retry policy mentioned above.",
+      "pull_request": { "url": "https://api.github.com/repos/example/docs/pulls/44" },
+      "labels": [{ "name": "help wanted" }]
+    },
+    {
+      "id": 7004,
+      "title": "Add myself to the contributors list",
+      "html_url": "https://github.com/example/docs/issues/80",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "Hacktoberfest: please add my name to the README contributors section so I can count this.",
+      "labels": [{ "name": "help wanted" }, { "name": "hacktoberfest" }]
+    },
+    {
+      "id": 7005,
+      "title": "Fix typo in README",
+      "html_url": "https://github.com/example/docs/issues/81",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "There is a typo in the README install snippet. Easy first pull request.",
+      "labels": [{ "name": "help wanted" }]
+    },
+    {
+      "id": 7006,
+      "title": "App crashes on start",
+      "html_url": "https://github.com/example/docs/issues/82",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "Error: boom\n    at start (index.js:1)\nstack trace follows and there is no ask for help implementing a fix.",
+      "labels": [{ "name": "help wanted" }, { "name": "bug" }]
+    },
+    {
+      "id": 7007,
+      "title": "Please help",
+      "html_url": "https://github.com/example/docs/issues/83",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "too short",
+      "labels": [{ "name": "help wanted" }]
+    },
+    {
+      "id": 7008,
+      "title": "Good first issue without help wanted",
+      "html_url": "https://github.com/example/docs/issues/84",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "This is labeled only as a good first issue and should not be copied without help wanted.",
+      "labels": [{ "name": "good first issue" }]
+    },
+    {
+      "id": 7009,
+      "title": "Empty repo busywork",
+      "html_url": "https://github.com/empty/repo/issues/1",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "Please implement a feature in this repository that has no description and no stars yet.",
+      "labels": [{ "name": "help wanted" }],
+      "repository": { "stargazers_count": 0, "description": "" }
     }
   ]
 }

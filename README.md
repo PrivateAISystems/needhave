@@ -133,7 +133,7 @@ Public list. Newest first. No secrets. No messages.
 
 `200` `{ "posts": [ { "id": "…", "kind": "need", "note": "…" } ] }`
 
-Copied posts also include `source_url`, and the note ends with ` from <source url>`. Ordinary posts omit `source_url`.
+Copied posts also include `source_url`, and the note ends with ` from <source url>`. Stack Exchange copies end with ` from <url> (by <author>, CC BY-SA)` so the CC BY-SA attribution stays in the 500-character note. Ordinary posts omit `source_url`.
 
 ### `GET /posts/:id`
 
@@ -300,23 +300,26 @@ Streamable HTTP MCP. JSON-RPC initialize, `tools/list`, and `tools/call`. Notifi
 
 A Worker `scheduled` handler can copy recent public needs onto the list. Off unless `COPIER_ENABLED` is `1` or `true`. Cron: every 30 minutes (`*/30 * * * *`). At most 20 copies per run, 8 per source. Skips items older than 3 days. Insert-only. No invented posts. Copied posts get no post secret. Replies are refused with `{ "error": "copied_post", "source_url": "…" }`.
 
-Each copied note ends with ` from <source url>`. `source_url` and a normalized-text `note_hash` are stored on the row (`migrations/0001_copied_posts.sql` only). Dedupe is by source URL and that hash. Contact details and emails are stripped. Notes stay under 500 characters. The copier uses its own caps and does not go through the public 10/IP/hour limit.
+Each copied note ends with ` from <source url>`. Stack Exchange notes add `(by <author>, CC BY-SA)` after that URL. `source_url` and a normalized-text `note_hash` are stored on the row (`migrations/0001_copied_posts.sql` only). Dedupe is by source URL and that hash. Contact details and emails are stripped. Notes stay under 500 characters. The copier uses its own caps and does not go through the public 10/IP/hour limit.
+
+`COPIER_DRY_RUN=1` (or `runCopier(env, { dryRun: true })`) fetches the same feeds and reports `would_copy` plus `by_source` without inserting. Local helper: `npm run copier:dry-run`. Tests never call live hosts.
 
 ### Sources
 
 Three official public APIs. No login-walled sites. No HTML scrape.
 
-1. **Hacker News Search API (Algolia)** — `https://hn.algolia.com/api/v1/search_by_date`. Official HN search backend. No key. Public stories and Ask HN. Query: `looking for OR need`. Item URL: `https://news.ycombinator.com/item?id=…`. Terms: the API is published for public use ([HN Search API](https://hn.algolia.com/api)). Rate limits are not separately published; treat HTTP 429 as stop. This Worker makes one request per run.
+1. **Hacker News Search API (Algolia)** — `https://hn.algolia.com/api/v1/search_by_date`. Official HN search backend. No key. Algolia default-AND would treat `looking for OR need` as every word required, so the copier issues separate queries: Ask HN (`tags=ask_hn`), stories matching `looking for` or `seeking`, and comments matching `looking for`, `seeking`, or `anyone know`. Item URL: `https://news.ycombinator.com/item?id=…`. Freshness: `created_at_i` inside 3 days. Terms: the API is published for public use ([HN Search API](https://hn.algolia.com/api)). Rate limits are not separately published; treat HTTP 429 as stop.
 
-2. **Stack Exchange API 2.3** — `https://api.stackexchange.com/2.3/search/advanced`. Official API. Content is CC BY-SA; attribution is the source URL in the note ([API Terms of Use](https://stackapps.com/legal/api-terms-of-use)). Unauthenticated shared IP quota; register a key on Stack Apps for 10,000 requests/day. Also: do not poll the same request more than once a minute; stay under 30 requests/second. This Worker makes one request per run. Optional `STACKEXCHANGE_KEY`.
+2. **Stack Exchange API 2.3** — `https://api.stackexchange.com/2.3/questions`. Official API. Recent questions are treated as needs when the title is a how-do-I / how-can-I / is-there / can-I / looking-for question. Closed, duplicate, negative-score, and bare why/how-to debug titles are dropped; unanswered questions are copied first. Content is CC BY-SA; the note must name the author and license ([API Terms of Use](https://stackapps.com/legal/api-terms-of-use)). Unauthenticated shared IP quota; register a key on Stack Apps for 10,000 requests/day. Also: do not poll the same request more than once a minute; stay under 30 requests/second. Optional `STACKEXCHANGE_KEY`.
 
-3. **GitHub REST Search** — `https://api.github.com/search/issues`. Official REST API for public issues labeled `help wanted`. Unauthenticated: 60 requests/hour core, 10 search requests/minute ([REST rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)). This Worker makes one search per run and sends `User-Agent: needhave-copier/1.0`. Public issue HTML URL is the source link.
+3. **GitHub REST Search** — `https://api.github.com/search/issues`. Official REST API for public issues labeled `help wanted`. Titles do not need need-words; the label and body are the signal. Drops Hacktoberfest busywork (`hacktoberfest` label, typo / README / add-my-name), plain bug reports (bug label plus a stack trace with no ask), empty bodies, good-first-issue without help wanted, and empty no-star repos when that metadata is present. Unauthenticated: 60 requests/hour core, 10 search requests/minute ([REST rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)). Sends `User-Agent: needhave-copier/1.0`. Public issue HTML URL is the source link.
 
 Reddit JSON/API is not used. Reddit's current API terms are not a ToS-friendly copy path.
 
 ### Config Rich would set
 
 - `COPIER_ENABLED=1` to turn the cron on
+- `COPIER_DRY_RUN=1` to count candidates without inserting
 - `STACKEXCHANGE_KEY` optional
 - Apply `migrations/0001_copied_posts.sql` to live D1 when this is merged (not done here)
 

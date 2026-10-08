@@ -4,19 +4,63 @@
       "question_id": 9001,
       "title": "Looking for a browser library that converts CSV to JSON",
       "link": "https://stackoverflow.com/questions/9001/looking-for-a-browser-library-that-converts-csv-to-json",
-      "creation_date": 1791414000
+      "creation_date": 1791414000,
+      "score": 2,
+      "is_answered": false,
+      "answer_count": 0,
+      "owner": { "display_name": "Alice" }
     },
     {
       "question_id": 9002,
       "title": "Looking for a compiler flag that no longer exists",
       "link": "https://stackoverflow.com/questions/9002/looking-for-a-compiler-flag-that-no-longer-exists",
-      "creation_date": 1790553600
+      "creation_date": 1790553600,
+      "score": 1,
+      "is_answered": false,
+      "answer_count": 0,
+      "owner": { "display_name": "OldUser" }
     },
     {
       "question_id": 9003,
-      "title": "How do I reverse a string in Python",
+      "title": "How do I reverse a string in Python?",
       "link": "https://stackoverflow.com/questions/9003/how-do-i-reverse-a-string-in-python",
-      "creation_date": 1791414000
+      "creation_date": 1791414000,
+      "score": 4,
+      "is_answered": true,
+      "answer_count": 3,
+      "owner": { "display_name": "Sam" }
+    },
+    {
+      "question_id": 9004,
+      "title": "Is there a way to debounce fetch in a service worker?",
+      "link": "https://stackoverflow.com/questions/9004/is-there-a-way-to-debounce-fetch-in-a-service-worker",
+      "creation_date": 1791413500,
+      "score": 1,
+      "is_answered": false,
+      "answer_count": 0,
+      "closed_reason": "Duplicate",
+      "closed_date": 1791413600,
+      "owner": { "display_name": "ClosedUser" }
+    },
+    {
+      "question_id": 9005,
+      "title": "Why does this compile on my machine?",
+      "link": "https://stackoverflow.com/questions/9005/why-does-this-compile-on-my-machine",
+      "creation_date": 1791413400,
+      "score": -3,
+      "is_answered": false,
+      "answer_count": 0,
+      "owner": { "display_name": "Downvoted" }
+    },
+    {
+      "question_id": 9006,
+      "title": "Can I stream a CSV from D1 without buffering the whole file?",
+      "link": "https://stackoverflow.com/questions/9006/can-i-stream-a-csv-from-d1-without-buffering-the-whole-file",
+      "creation_date": 1791413300,
+      "score": 0,
+      "is_answered": false,
+      "answer_count": 0,
+      "owner": { "display_name": "Lee &amp; Co" }
     }
   ]
 }
