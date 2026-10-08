@@ -7,11 +7,12 @@ const error = {
 
 const publicPost = {
   type: "object",
-  required: ["id", "kind", "note"],
+  required: ["id", "kind", "note", "source"],
   properties: {
     id: { type: "string" },
     kind: { type: "string", enum: ["need", "have"] },
     note: { type: "string" },
+    source: { type: "string" },
   },
   additionalProperties: false,
 };
@@ -49,8 +50,9 @@ export const openapi = {
   openapi: "3.1.0",
   info: {
     title: "Needhave",
-    description: "One public list. Two posts: need and have. No accounts.",
-    version: "1.0.0",
+    description:
+      "One public list. Two posts: need and have. No accounts. Every post names its source: self, agent:<name>, or tip-confirmed:<url>.",
+    version: "1.1.0",
   },
   servers: [{ url: "https://needhave.io" }],
   paths: {
@@ -86,16 +88,17 @@ export const openapi = {
         responses: {
           201: jsonResponse("Created post", {
             type: "object",
-            required: ["id", "kind", "note", "secret"],
+            required: ["id", "kind", "note", "source", "secret"],
             properties: {
               id: { type: "string" },
               kind: { type: "string", enum: ["need", "have"] },
               note: { type: "string" },
+              source: { type: "string" },
               secret: { type: "string" },
             },
             additionalProperties: false,
           }),
-          400: errorResponse("bad_kind, empty_note, or huge_note"),
+          400: errorResponse("bad_kind, empty_note, huge_note, or contact_details"),
           409: errorResponse("duplicate_note"),
           429: errorResponse("rate_limited"),
         },
@@ -280,6 +283,127 @@ export const openapi = {
         },
       },
     },
+    "/intake": {
+      get: {
+        summary: "Small HTTP intake form",
+        description: "Self-submit only. Optional Turnstile widget when configured.",
+        responses: {
+          200: { description: "HTML form" },
+        },
+      },
+      post: {
+        summary: "Self-submit a post",
+        description:
+          "Same filters and 10/IP/hour limit as POST /posts. source is self. Turnstile is required only when TURNSTILE_SECRET is set.",
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["kind", "note"],
+            properties: {
+              kind: { type: "string", enum: ["need", "have"] },
+              note: { type: "string" },
+              turnstile: { type: "string" },
+            },
+          }),
+        },
+        responses: {
+          201: jsonResponse("Created post", { $ref: "#/components/schemas/CreatedPost" }),
+          400: errorResponse("bad_kind, empty_note, huge_note, or contact_details"),
+          403: errorResponse("turnstile"),
+          409: errorResponse("duplicate_note"),
+          429: errorResponse("rate_limited"),
+        },
+      },
+    },
+    "/agent": {
+      post: {
+        summary: "Team agent hook",
+        description:
+          "Authenticated. Posts a genuine blocked need or have. source is agent:<name>. Off unless AGENT_HOOK_SECRET is set. Real blocked needs only.",
+        security: [{ agentHook: [] }],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["kind", "note", "agent"],
+            properties: {
+              kind: { type: "string", enum: ["need", "have"] },
+              note: { type: "string" },
+              agent: { type: "string" },
+            },
+          }),
+        },
+        responses: {
+          201: jsonResponse("Created post", { $ref: "#/components/schemas/CreatedPost" }),
+          400: errorResponse("bad_kind, bad_agent, empty_note, huge_note, or contact_details"),
+          403: errorResponse("unauthorized"),
+          409: errorResponse("duplicate_note"),
+          429: errorResponse("rate_limited"),
+          503: errorResponse("not_configured"),
+        },
+      },
+    },
+    "/tips": {
+      post: {
+        summary: "Store a private pending tip",
+        description:
+          "Authenticated. Never public. Never posted directly. Returns a one-time invite path. Off unless TIP_CREATE_SECRET is set.",
+        security: [{ tipCreate: [] }],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["source_url", "author_handle", "proposed_note"],
+            properties: {
+              source_url: { type: "string" },
+              author_handle: { type: "string" },
+              proposed_note: { type: "string" },
+            },
+          }),
+        },
+        responses: {
+          201: jsonResponse("Pending tip", {
+            type: "object",
+            required: ["id", "invite_path"],
+            properties: {
+              id: { type: "string" },
+              invite_path: { type: "string" },
+            },
+            additionalProperties: false,
+          }),
+          400: errorResponse("bad_source_url, bad_handle, empty_note, huge_note, or contact_details"),
+          403: errorResponse("unauthorized"),
+          429: errorResponse("rate_limited"),
+          503: errorResponse("not_configured"),
+        },
+      },
+    },
+    "/tips/confirm": {
+      post: {
+        summary: "Confirm a tip",
+        description:
+          "Author confirms with the single-use expiring token. Then the post appears as tip-confirmed:<url>. The confirmer receives the post secret. The tip creator never sees it.",
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["token"],
+            properties: {
+              token: { type: "string" },
+              note: { type: "string" },
+            },
+          }),
+        },
+        responses: {
+          201: jsonResponse("Confirmed post", { $ref: "#/components/schemas/CreatedPost" }),
+          400: errorResponse("bad_request, empty_note, huge_note, or contact_details"),
+          404: errorResponse("not_found"),
+          409: errorResponse("already_confirmed or duplicate_note"),
+          410: errorResponse("expired"),
+        },
+      },
+    },
     "/threads/messages": {
       post: {
         summary: "Send a later message",
@@ -314,9 +438,25 @@ export const openapi = {
     },
   },
   components: {
+    securitySchemes: {
+      agentHook: { type: "http", scheme: "bearer" },
+      tipCreate: { type: "http", scheme: "bearer" },
+    },
     schemas: {
       Error: error,
       PublicPost: publicPost,
+      CreatedPost: {
+        type: "object",
+        required: ["id", "kind", "note", "source", "secret"],
+        properties: {
+          id: { type: "string" },
+          kind: { type: "string", enum: ["need", "have"] },
+          note: { type: "string" },
+          source: { type: "string" },
+          secret: { type: "string" },
+        },
+        additionalProperties: false,
+      },
       Message: message,
     },
   },

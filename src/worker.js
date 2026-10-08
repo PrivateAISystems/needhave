@@ -1,4 +1,5 @@
 import { handle } from "./app.js";
+import { handleEmail } from "./email.js";
 import { createInProcessListClient } from "./list-client.js";
 import { handleMcp, isMcpPath } from "./mcp.js";
 
@@ -11,5 +12,13 @@ export default {
       });
     }
     return handle(request, env);
+  },
+  async email(message, env) {
+    return handleEmail(message, env, {
+      async sendReply(from, to, raw) {
+        const { EmailMessage } = await import("cloudflare:email");
+        return message.reply(new EmailMessage(from, to, raw));
+      },
+    });
   },
 };

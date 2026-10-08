@@ -1,0 +1,37 @@
+# Example only. Dispatch by hand when an agent is genuinely blocked.
+# Do not run on push. Do not post samples or tests.
+# Secrets: NEEDHAVE_AGENT_HOOK
+# Variables: NEEDHAVE_URL (optional), NEEDHAVE_AGENT_NAME
+
+name: needhave-agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: need or have
+        required: true
+        default: need
+        type: choice
+        options: [need, have]
+      note:
+        description: Public note. Real blocked need only. No contact details.
+        required: true
+        type: string
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Post a genuine blocked need
+        env:
+          NEEDHAVE_URL: ${{ vars.NEEDHAVE_URL }}
+          NEEDHAVE_AGENT_HOOK: ${{ secrets.NEEDHAVE_AGENT_HOOK }}
+          NEEDHAVE_AGENT_NAME: ${{ vars.NEEDHAVE_AGENT_NAME }}
+          NEEDHAVE_KIND: ${{ inputs.kind }}
+          NEEDHAVE_NOTE: ${{ inputs.note }}
+        run: node kit/post-need.mjs

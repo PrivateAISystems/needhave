@@ -16,9 +16,17 @@ export async function insertPost(db, row) {
   try {
     await db
       .prepare(
-        "INSERT INTO posts (id, kind, note, secret_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO posts (id, kind, note, secret_hash, created_at, source, note_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .bind(row.id, row.kind, row.note, row.secret_hash, row.created_at)
+      .bind(
+        row.id,
+        row.kind,
+        row.note,
+        row.secret_hash,
+        row.created_at,
+        row.source,
+        row.note_hash,
+      )
       .run();
     return { ok: true };
   } catch (err) {
@@ -29,7 +37,9 @@ export async function insertPost(db, row) {
 
 export async function findPost(db, id) {
   return db
-    .prepare("SELECT id, kind, note, secret_hash, created_at FROM posts WHERE id = ?")
+    .prepare(
+      "SELECT id, kind, note, secret_hash, created_at, source, note_hash FROM posts WHERE id = ?",
+    )
     .bind(id)
     .first();
 }
@@ -37,7 +47,7 @@ export async function findPost(db, id) {
 export async function listPosts(db) {
   const result = await db
     .prepare(
-      `SELECT id, kind, note FROM posts ORDER BY created_at DESC, id DESC LIMIT ${MAX_LIST_POSTS}`,
+      `SELECT id, kind, note, source FROM posts ORDER BY created_at DESC, id DESC LIMIT ${MAX_LIST_POSTS}`,
     )
     .all();
   return result.results ?? [];
@@ -45,6 +55,76 @@ export async function listPosts(db) {
 
 export async function findPostByNote(db, note) {
   return db.prepare("SELECT id FROM posts WHERE note = ?").bind(note).first();
+}
+
+export async function findPostByNoteHash(db, noteHash) {
+  return db.prepare("SELECT id FROM posts WHERE note_hash = ?").bind(noteHash).first();
+}
+
+export async function insertTip(db, row) {
+  await db
+    .prepare(
+      "INSERT INTO tips (id, source_url, author_handle, proposed_note, note_hash, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(
+      row.id,
+      row.source_url,
+      row.author_handle,
+      row.proposed_note,
+      row.note_hash,
+      row.token_hash,
+      row.expires_at,
+      row.created_at,
+    )
+    .run();
+}
+
+export async function findTipByTokenHash(db, tokenHash) {
+  return db
+    .prepare(
+      "SELECT id, source_url, author_handle, proposed_note, note_hash, token_hash, expires_at, created_at FROM tips WHERE token_hash = ?",
+    )
+    .bind(tokenHash)
+    .first();
+}
+
+export async function findTipConfirm(db, tipId) {
+  return db
+    .prepare("SELECT id, tip_id, post_id, created_at FROM tip_confirms WHERE tip_id = ?")
+    .bind(tipId)
+    .first();
+}
+
+export async function insertTipConfirm(db, row) {
+  try {
+    await db
+      .prepare(
+        "INSERT INTO tip_confirms (id, tip_id, post_id, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .bind(row.id, row.tip_id, row.post_id, row.created_at)
+      .run();
+    return { ok: true };
+  } catch (err) {
+    if (isUniqueViolation(err)) return { ok: false, error: "already_confirmed" };
+    throw err;
+  }
+}
+
+export async function countSourceWrites(db, bucket, since) {
+  const row = await db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM write_events WHERE bucket = ? AND created_at > ?",
+    )
+    .bind(bucket, since)
+    .first();
+  return Number(row && row.n != null ? row.n : 0);
+}
+
+export async function insertWriteEvent(db, row) {
+  await db
+    .prepare("INSERT INTO write_events (id, bucket, created_at) VALUES (?, ?, ?)")
+    .bind(row.id, row.bucket, row.created_at)
+    .run();
 }
 
 export async function insertMessage(db, row) {

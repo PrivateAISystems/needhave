@@ -8,10 +8,12 @@ Two people should be able to implement the same list from this file and `src/`.
 
 Cloudflare Worker plus one D1 database. Binding name: `DB`. Schema: `schema.sql`.
 
-Two row kinds only.
+Two public row kinds only.
 
-- A **post** is `need` or `have`, a public note, and a secret shown once.
+- A **post** is `need` or `have`, a public note, a public `source`, and a secret shown once.
 - A **message** is one replier's text on that post, or a later line on a thread, or the insert-only accept decision that writes the thread key.
+
+`source` is `self`, `agent:<name>`, or `tip-confirmed:<source url>`. Found public needs are never posted directly. They sit in a private pending tip until the author confirms.
 
 No accounts. No contact field. No short list. No payment. No edits. No deletes. A decision is a new row.
 
@@ -19,15 +21,19 @@ The first message waits until the poster accepts. The poster reads waiting first
 
 When a replier posts a first message they receive a secret of their own, shown once. That secret is how they call back for the thread key after the poster has accepted, and only then. Before accept, that call does not reveal the key. Accept writes one thread key shared by that poster and that replier. Later messages use that key. Other repliers never see that thread.
 
-A cheap filter drops empty notes, huge notes, and the same text pasted across posts. It does not approve anyone. The poster's accept does.
+A cheap filter drops empty notes, huge notes, contact details, the same text pasted across posts, and the same note after case/whitespace/punctuation normalization. It does not approve anyone. The poster's accept does. Every write path also uses the 10 posts/IP/hour limit.
 
 ## Limits
 
 - Empty: after trim, length 0. Error `empty_note`.
 - Huge: after trim, more than 500 characters. Error `huge_note`.
-- Same text pasted across posts: exact trimmed note already in `posts.note`. Error `duplicate_note`. Kind does not matter.
+- Same text pasted across posts: exact trimmed note already in `posts.note`, or the same normalized-text hash. Error `duplicate_note`. Kind does not matter.
+- Contact details in a note (email, phone, or contact-intent handle): Error `contact_details`.
 - Waiting first replies: at most 20 hidden first messages on one post. Error `too_many`, status `429`.
-- Create post: at most 10 successful creates per IP per hour, inside the create-post handler. Error `rate_limited`, status `429`.
+- Create post: at most 10 successful creates per IP per hour on every post write path (`POST /posts`, `/intake`, `/agent`, email, tip confirm). Error `rate_limited`, status `429`.
+- Agent posts: at most 10 successful posts per `agent:<name>` per hour.
+- Email intake: at most 3 successful posts per sender per hour.
+- Tips: at most 10 pending tips per source domain per hour, and 10 tip-creates per IP per hour.
 - First reply: at most 20 successful first replies per IP per hour, inside the first-reply handler. Error `rate_limited`, status `429`. One MCP JSON-RPC batch cannot skip those per-IP counts.
 - Public list: newest 100 posts. Waiting list: 20. Later messages on a thread: 100.
 
@@ -119,25 +125,86 @@ Create a post. Secret is in this response only.
   "id": "…32 hex…",
   "kind": "need",
   "note": "Need a working bicycle in town this week",
+  "source": "self",
   "secret": "…64 hex…"
 }
 ```
 
-`400` `{ "error": "bad_kind" | "empty_note" | "huge_note" }`
+`400` `{ "error": "bad_kind" | "empty_note" | "huge_note" | "contact_details" }`
 `409` `{ "error": "duplicate_note" }`
 `429` `{ "error": "rate_limited" }`
+
+A client `source` field is ignored. This path is always `self`. MCP `create_need` / `create_have` use this path.
+
+### `POST /intake`
+
+Self-submit from a small form or script. Same filters, hash dedupe, and 10/IP/hour limit. `source` is `self`. GET `/intake` is the HTML form.
+
+JSON or `application/x-www-form-urlencoded`. When `TURNSTILE_SECRET` is set, a Turnstile token is required (`turnstile` or `cf-turnstile-response`). Off otherwise.
+
+`201` same created-post body as `POST /posts`.
+`403` `{ "error": "turnstile" }`
+
+### `POST /agent`
+
+Team-agent hook. Off unless `AGENT_HOOK_SECRET` is set. `Authorization: Bearer …`. Body:
+
+```json
+{ "kind": "need", "note": "Need a reviewer for a blocked MCP publish this week", "agent": "midl" }
+```
+
+`201` created post with `source` `agent:midl`. Real blocked needs only. No samples. No copied stranger asks.
+
+`403` `{ "error": "unauthorized" }`
+`503` `{ "error": "not_configured" }`
+
+Script: `kit/post-need.mjs`. Example Action: `.github/workflows/needhave-agent.yml` (workflow_dispatch only).
+
+### `POST /tips`
+
+Store a private pending tip. Never listed. Never a post. Off unless `TIP_CREATE_SECRET` is set. `Authorization: Bearer …`.
+
+```json
+{
+  "source_url": "https://news.ycombinator.com/item?id=424242",
+  "author_handle": "ada",
+  "proposed_note": "Need a weekend bike trailer in town"
+}
+```
+
+`201` `{ "id": "…", "invite_path": "/tips/confirm?token=…" }`. Token is shown once here. No post secret.
+
+GET `/tips` and GET `/tips/:id` are `404`.
+
+### `POST /tips/confirm`
+
+Author confirms. Token is single-use and expiring (7 days). Optional `note` edits the text. Then a post appears with `source` `tip-confirmed:<source url>`. The confirmer receives the post secret. The tip creator never does.
+
+```json
+{ "token": "…", "note": "optional edit" }
+```
+
+`201` created post.
+`409` `{ "error": "already_confirmed" | "duplicate_note" }`
+`410` `{ "error": "expired" }`
+
+GET `/tips/confirm?token=…` is the confirm form.
+
+### Email intake
+
+Optional Worker `email()` handler. No-op unless `EMAIL_INTAKE` is set. Requires `dkim=pass` and `spf=pass` or `dmarc=pass` on `Authentication-Results`. Note comes from Subject. Secret is emailed only to the envelope From. `source` is `self`. Off by default. Cloudflare Email Routing is a change Rich must make; this repo does not deploy it.
 
 ### `GET /posts`
 
 Public list. Newest first. No secrets. No messages.
 
-`200` `{ "posts": [ { "id": "…", "kind": "need", "note": "…" } ] }`
+`200` `{ "posts": [ { "id": "…", "kind": "need", "note": "…", "source": "self" } ] }`
 
 ### `GET /posts/:id`
 
 One public post. No secret. No messages.
 
-`200` `{ "id": "…", "kind": "need", "note": "…" }`
+`200` `{ "id": "…", "kind": "need", "note": "…", "source": "self" }`
 `404` `{ "error": "not_found" }`
 
 ### `POST /posts/:id/messages`
@@ -295,7 +362,15 @@ Streamable HTTP MCP. JSON-RPC initialize, `tools/list`, and `tools/call`. Notifi
 
 ## Rows
 
-`posts`: `id`, `kind`, `note`, `secret_hash`, `created_at`.
+`posts`: `id`, `kind`, `note`, `secret_hash`, `created_at`, `source`, `note_hash`.
+
+New D1 columns and private tip tables are in `migrations/0001_consent_intake.sql` only. Do not put rows in the repo.
+
+Private, not listed:
+
+- `tips` — pending found need. Token stored hashed. Expires.
+- `tip_confirms` — insert-only confirm decision. Makes the token single-use without editing the tip.
+- `write_events` — per-source cap counters.
 
 `messages.role`:
 
@@ -313,11 +388,24 @@ No Cloudflare account. No deploy. No remote URL.
 npm test
 ```
 
-The test loads `schema.sql` into an in-memory SQLite database that speaks the D1 `prepare`/`bind`/`first`/`all`/`run` calls, then runs the Worker `handle` against it.
+The test loads `schema.sql` plus `migrations/` into an in-memory SQLite database that speaks the D1 `prepare`/`bind`/`first`/`all`/`run` calls, then runs the Worker `handle` against it.
+
+## Config Rich would set (not in this repo)
+
+Worker secrets / vars, never committed:
+
+- `AGENT_HOOK_SECRET` — Bearer for `POST /agent`
+- `TIP_CREATE_SECRET` — Bearer for `POST /tips`
+- `TURNSTILE_SECRET` — optional; gates `POST /intake`
+- `TURNSTILE_SITEKEY` — optional public widget key
+- `EMAIL_INTAKE` — optional; any value enables `email()`
+- `EMAIL_FROM` — optional From address for secret replies
+
+GitHub Action variables/secrets if the example hook is used: `NEEDHAVE_AGENT_HOOK`, `NEEDHAVE_AGENT_NAME`, `NEEDHAVE_URL`.
 
 MCP tests run `POST /mcp` on the Worker against that same in-memory list in process. They do not HTTP-fetch the live host. They do not post live rows. Local stdio still defaults to the live list; the stdio test points it at a local HTTP stand-in of the same calls. They check the eight tools, hidden first replies, accept returning a thread key, a replier claim after accept, and that GET / is still the same landing with no form.
 
-It checks: the landing at GET / is HTML with a title, a description, and a link to `/openapi.json`; `/openapi.json` names the existing calls; `/llms.txt` is a short public note; `/robots.txt` and `/sitemap.xml` exist; `/auth.md` says there are no accounts; markdown negotiation on GET /; the API catalog and MCP server card describe the existing calls only; unknown paths stay JSON `not_found`; create a post and see the secret once; reject an empty note, a huge note, and the same text pasted again; hide the first message from anyone without the post secret; show the poster waiting first messages and ids with the post secret; give the replier a secret shown once; reveal no thread key on that callback before accept; accept a waiting message id; give the replier the thread key only after accept; send a later message with that key in the body; refuse a path that still contains the key; cap waiting first replies at 20; apply the per-IP create limits inside the handlers; show that a different replier cannot read that thread.
+It checks the existing list calls plus: each source path; normalized-hash dedupe across paths; contact-details rejection; 10/IP/hour on intake; per-agent cap; tip hidden until confirm; confirm token single-use and expiry; no secret or token on public reads; email no-op unless configured; spoofed email rejected; optional Turnstile.
 
 ## Out of this build
 

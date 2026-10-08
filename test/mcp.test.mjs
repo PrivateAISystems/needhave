@@ -10,10 +10,10 @@ import { createListClient, LIVE_LIST } from "../src/list-client.js";
 import { MAX_NOTE, MAX_POSTS_PER_IP } from "../src/limits.js";
 import { handleMcp, SERVER_VERSION, TOOLS } from "../src/mcp.js";
 import worker from "../src/worker.js";
-import { createLocalEnv } from "./d1-sqlite.mjs";
+import { createLocalEnv, loadLocalSql } from "./d1-sqlite.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const schema = readFileSync(join(root, "schema.sql"), "utf8");
+const schema = loadLocalSql(root);
 const env = createLocalEnv(schema);
 
 async function mcp(body, { method = "POST", path = "/mcp", headers = {} } = {}) {
@@ -215,6 +215,7 @@ const need = await callTool("create_need", {
 assert.equal(need.isError, false);
 assert.equal(need.data.kind, "need");
 assert.equal(need.data.note, "Need a working bicycle in town this week");
+assert.equal(need.data.source, "self");
 assert.equal(need.data.id.length, 32);
 assert.equal(need.data.secret.length, 64);
 const postId = need.data.id;
@@ -246,6 +247,7 @@ assert.deepEqual(one.data, {
   id: postId,
   kind: "need",
   note: "Need a working bicycle in town this week",
+  source: "self",
 });
 assert.equal("secret" in one.data, false);
 ok("read one post; secret is not on later reads");

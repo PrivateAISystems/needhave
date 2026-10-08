@@ -5,7 +5,12 @@ export const MAX_LIST_POSTS = 100;
 export const MAX_LIST_MESSAGES = 100;
 export const MAX_POSTS_PER_IP = 10;
 export const MAX_FIRST_REPLIES_PER_IP = 20;
+export const MAX_TIPS_PER_IP = 10;
+export const MAX_AGENT_POSTS = 10;
+export const MAX_EMAIL_POSTS = 3;
+export const MAX_TIPS_PER_DOMAIN = 10;
 export const RATE_WINDOW_MS = 60 * 60 * 1000;
+export const TIP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const buckets = new Map();
 
@@ -33,8 +38,17 @@ function prune(now) {
  * batch cannot skip this: each handler call counts once.
  * Does not log the IP or any secret.
  */
+export function nowMs(env) {
+  return env && typeof env.now === "number" ? env.now : Date.now();
+}
+
 export function allowIp(request, kind) {
-  const max = kind === "post" ? MAX_POSTS_PER_IP : MAX_FIRST_REPLIES_PER_IP;
+  const max =
+    kind === "post"
+      ? MAX_POSTS_PER_IP
+      : kind === "tip"
+        ? MAX_TIPS_PER_IP
+        : MAX_FIRST_REPLIES_PER_IP;
   const key = `${kind}:${clientIp(request)}`;
   const now = Date.now();
   if (buckets.size > 256) prune(now);

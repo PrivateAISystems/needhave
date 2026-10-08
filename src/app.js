@@ -5,14 +5,14 @@ import {
   findAcceptForFirst,
   findMessage,
   findPost,
-  findPostByNote,
   insertMessage,
-  insertPost,
   listLaterByThreadHash,
   listPosts,
   listWaitingFirsts,
 } from "./db.js";
 import { filterNote, trimNote } from "./filter.js";
+import { createAgentPost, createSelfPost, publicPost } from "./posts.js";
+import { confirmPage, confirmTip, createTip } from "./tips.js";
 import {
   API_CATALOG,
   API_CATALOG_TYPE,
@@ -90,10 +90,6 @@ async function readBody(request) {
   }
 }
 
-function publicPost(row) {
-  return { id: row.id, kind: row.kind, note: row.note };
-}
-
 function readSecret(body) {
   return body && typeof body.secret === "string" ? body.secret : null;
 }
@@ -102,31 +98,57 @@ function readThreadKey(body) {
   return body && typeof body.thread_key === "string" ? body.thread_key : null;
 }
 
-async function createPost(env, body, request) {
-  if (!body || (body.kind !== "need" && body.kind !== "have")) {
-    return error("bad_kind", 400);
+async function readInput(request) {
+  const type = (request.headers.get("content-type") || "").toLowerCase();
+  if (type.includes("application/x-www-form-urlencoded")) {
+    try {
+      return Object.fromEntries(new URLSearchParams(await request.text()));
+    } catch {
+      return null;
+    }
   }
-  const note = trimNote(body.note);
-  const filtered = filterNote(note);
-  if (filtered) return error(filtered, 400);
+  return readBody(request);
+}
 
-  const existing = await findPostByNote(env.DB, note);
-  if (existing) return error("duplicate_note", 409);
+function resultResponse(result) {
+  if (result.post) {
+    return json(result.post, result.status);
+  }
+  if (result.tip) {
+    return json(result.tip, result.status);
+  }
+  return error(result.error || "bad_request", result.status || 400);
+}
 
-  if (!allowIp(request, "post")) return error("rate_limited", 429);
+async function createPost(env, body, request) {
+  return resultResponse(await createSelfPost(env, request, body));
+}
 
-  const id = newId();
-  const secret = newSecret();
-  const inserted = await insertPost(env.DB, {
-    id,
-    kind: body.kind,
-    note,
-    secret_hash: await sha256Hex(secret),
-    created_at: Date.now(),
-  });
-  if (!inserted.ok) return error(inserted.error, 409);
+async function createIntake(env, body, request) {
+  return resultResponse(
+    await createSelfPost(env, request, body, { requireTurnstile: true }),
+  );
+}
 
-  return json({ id, kind: body.kind, note, secret }, 201);
+function intakePage(env) {
+  const siteKey = env && env.TURNSTILE_SITEKEY;
+  const widget = siteKey
+    ? `<div class="cf-turnstile" data-sitekey="${String(siteKey).replace(/"/g, "")}"></div>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`
+    : "";
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Post a need</title></head>
+<body>
+<p>Post your own need or have. The secret is shown once. No contact details.</p>
+<form method="post" action="/intake">
+<label>Kind
+<select name="kind"><option value="need">need</option><option value="have">have</option></select>
+</label>
+<label>Note <textarea name="note" maxlength="500" required></textarea></label>
+${widget}
+<button type="submit">Post</button>
+</form>
+</body></html>`;
 }
 
 async function getPosts(env) {
@@ -358,11 +380,34 @@ export async function handle(request, env) {
   if (parts.length === 1 && parts[0] === "llms.txt" && method === "GET") {
     return text(LLMS_TXT, "text/plain");
   }
+  if (parts.length === 1 && parts[0] === "intake" && method === "GET") {
+    return html(intakePage(env), request);
+  }
+  if (parts.length === 1 && parts[0] === "intake" && method === "POST") {
+    return createIntake(env, await readInput(request), request);
+  }
+  if (parts.length === 1 && parts[0] === "agent" && method === "POST") {
+    return resultResponse(await createAgentPost(env, request, await readBody(request)));
+  }
+  if (parts.length === 1 && parts[0] === "tips" && method === "POST") {
+    return resultResponse(await createTip(env, request, await readBody(request)));
+  }
+  if (parts.length === 2 && parts[0] === "tips" && parts[1] === "confirm" && method === "GET") {
+    const token = url.searchParams.get("token") || "";
+    if (!token) return error("bad_request", 400);
+    return html(confirmPage(token, env && env.TURNSTILE_SITEKEY), request);
+  }
+  if (parts.length === 2 && parts[0] === "tips" && parts[1] === "confirm" && method === "POST") {
+    return resultResponse(await confirmTip(env, request, await readInput(request)));
+  }
+  if (parts[0] === "tips") {
+    return error("not_found", 404);
+  }
   if (parts.length === 1 && parts[0] === "posts" && method === "GET") {
     return getPosts(env);
   }
   if (parts.length === 1 && parts[0] === "posts" && method === "POST") {
-    return createPost(env, await readBody(request), request);
+    return createPost(env, await readInput(request), request);
   }
   if (parts.length === 2 && parts[0] === "posts" && method === "GET") {
     return getPost(env, parts[1]);

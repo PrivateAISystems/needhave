@@ -8,3 +8,12 @@ compatibility_date = "2026-10-04"
 binding = "DB"
 database_name = "needhave"
 database_id = "local-only-not-deployed"
+migrations_dir = "migrations"
+
+# Intake stays off until Rich sets Worker secrets. Do not put secret values here.
+# AGENT_HOOK_SECRET — Bearer for POST /agent
+# TIP_CREATE_SECRET — Bearer for POST /tips
+# TURNSTILE_SECRET — optional; gates POST /intake
+# TURNSTILE_SITEKEY — optional public widget key
+# EMAIL_INTAKE — optional; any value enables email()
+# EMAIL_FROM — optional From for secret replies

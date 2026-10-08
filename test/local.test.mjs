@@ -23,10 +23,10 @@ import {
 import { LLMS_TXT } from "../src/llms.js";
 import { TOOLS } from "../src/mcp.js";
 import { MAX_NOTE, MAX_POSTS_PER_IP, MAX_WAITING_FIRSTS } from "../src/limits.js";
-import { createLocalEnv } from "./d1-sqlite.mjs";
+import { createLocalEnv, loadLocalSql } from "./d1-sqlite.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const schema = readFileSync(join(root, "schema.sql"), "utf8");
+const schema = loadLocalSql(root);
 const env = createLocalEnv(schema);
 
 async function call(method, path, body, extraHeaders = {}) {
@@ -113,13 +113,20 @@ assert.match(home.text, /<a href="\/openapi\.json">Post through the calls<\/a>/)
 assert.match(home.text, /font-family:/);
 ok("landing is one HTML page with title, description, and a link to the calls");
 
-const appSource = readFileSync(join(root, "src/app.js"), "utf8");
-const workerSource = readFileSync(join(root, "src/worker.js"), "utf8");
-const dbSource = readFileSync(join(root, "src/db.js"), "utf8");
-assert.equal(/console\.(log|info|debug|warn|error)/.test(appSource), false);
-assert.equal(/console\.(log|info|debug|warn|error)/.test(workerSource), false);
-assert.equal(/console\.(log|info|debug|warn|error)/.test(dbSource), false);
-ok("handlers do not log the thread key");
+for (const file of [
+  "src/app.js",
+  "src/worker.js",
+  "src/db.js",
+  "src/email.js",
+  "src/posts.js",
+  "src/tips.js",
+  "src/auth.js",
+  "src/turnstile.js",
+]) {
+  const source = readFileSync(join(root, file), "utf8");
+  assert.equal(/console\.(log|info|debug|warn|error)/.test(source), false, file);
+}
+ok("handlers do not log secrets, tokens, or thread keys");
 
 const emptyList = await call("GET", "/posts");
 assert.equal(emptyList.status, 200);
@@ -133,6 +140,11 @@ assert.match(spec.headers.get("content-type"), /^application\/json; charset=utf-
 assert.match(spec.json.openapi, /^3\./);
 assert.ok(spec.json.paths["/posts"].get);
 assert.ok(spec.json.paths["/posts"].post);
+assert.ok(spec.json.paths["/intake"].post);
+assert.ok(spec.json.paths["/agent"].post);
+assert.ok(spec.json.paths["/tips"].post);
+assert.ok(spec.json.paths["/tips/confirm"].post);
+assert.equal(spec.json.components.schemas.PublicPost.required.includes("source"), true);
 assert.ok(spec.json.paths["/posts/{id}/messages"].post);
 assert.ok(spec.json.paths["/posts/{id}/accept"].post);
 assert.ok(spec.json.paths["/messages/{id}/thread"].post);
@@ -260,6 +272,7 @@ assert.equal(typeof created.json.id, "string");
 assert.equal(created.json.id.length, 32);
 assert.equal(typeof created.json.secret, "string");
 assert.equal(created.json.secret.length, 64);
+assert.equal(created.json.source, "self");
 const postId = created.json.id;
 const postSecret = created.json.secret;
 ok("create a post and see the secret once");
@@ -269,6 +282,7 @@ assert.equal(listed.status, 200);
 assert.equal(listed.json.posts.length, 1);
 assert.equal(listed.json.posts[0].id, postId);
 assert.equal(listed.json.posts[0].note, "Need a working bicycle in town this week");
+assert.equal(listed.json.posts[0].source, "self");
 assert.equal("secret" in listed.json.posts[0], false);
 
 const fetched = await call("GET", `/posts/${postId}`);
@@ -568,5 +582,334 @@ assert.equal(overFirstIp.status, 429);
 assert.equal(overFirstIp.json.error, "rate_limited");
 assert.equal(overFirstIp.json.error === "too_many", false);
 ok("per-ip first-reply cap is inside the first-reply handler");
+
+const contact = await call("POST", "/posts", {
+  kind: "need",
+  note: "Need a review, email me at ada@example.com please",
+});
+assert.equal(contact.status, 400);
+assert.equal(contact.json.error, "contact_details");
+ok("reject contact details in notes");
+
+const spoof = await call("POST", "/posts", {
+  kind: "need",
+  note: "Need a unique self note that an agent cannot claim as source",
+  source: "agent:evil",
+});
+assert.equal(spoof.status, 201);
+assert.equal(spoof.json.source, "self");
+ok("public create cannot spoof source");
+
+const intake = await call(
+  "POST",
+  "/intake",
+  { kind: "have", note: "Have a spare folding table free Thursday evening only" },
+  { "cf-connecting-ip": "198.51.100.40" },
+);
+assert.equal(intake.status, 201);
+assert.equal(intake.json.source, "self");
+assert.equal(typeof intake.json.secret, "string");
+const intakeSecret = intake.json.secret;
+const intakeList = await call("GET", "/posts");
+assert.equal(leak(intakeList.json, intakeSecret), false);
+ok("HTTP intake self-submit");
+
+const cross = await call("POST", "/intake", {
+  kind: "need",
+  note: "Need a unique self note that an agent cannot claim as source!",
+});
+assert.equal(cross.status, 409);
+assert.equal(cross.json.error, "duplicate_note");
+ok("normalized-hash dedupe across POST /posts and /intake");
+
+const agentOff = await call("POST", "/agent", {
+  kind: "need",
+  note: "Need a reviewer for a blocked MCP publish this week",
+  agent: "midl",
+});
+assert.equal(agentOff.status, 503);
+assert.equal(agentOff.json.error, "not_configured");
+
+env.AGENT_HOOK_SECRET = "agent-hook-test";
+const agentDenied = await call(
+  "POST",
+  "/agent",
+  {
+    kind: "need",
+    note: "Need a reviewer for a blocked MCP publish this week",
+    agent: "midl",
+  },
+  { authorization: "Bearer wrong" },
+);
+assert.equal(agentDenied.status, 403);
+assert.equal(agentDenied.json.error, "unauthorized");
+
+const agentOk = await call(
+  "POST",
+  "/agent",
+  {
+    kind: "need",
+    note: "Need a reviewer for a blocked MCP publish this week",
+    agent: "midl",
+  },
+  {
+    authorization: "Bearer agent-hook-test",
+    "cf-connecting-ip": "198.51.100.41",
+  },
+);
+assert.equal(agentOk.status, 201);
+assert.equal(agentOk.json.source, "agent:midl");
+assert.equal(typeof agentOk.json.secret, "string");
+const agentSecret = agentOk.json.secret;
+const agentPublic = await call("GET", `/posts/${agentOk.json.id}`);
+assert.equal(agentPublic.json.source, "agent:midl");
+assert.equal("secret" in agentPublic.json, false);
+assert.equal(leak(agentPublic.json, agentSecret), false);
+ok("authenticated agent hook attributes source=agent:name");
+
+for (let i = 0; i < 9; i++) {
+  const extra = await call(
+    "POST",
+    "/agent",
+    {
+      kind: "need",
+      note: `Need an agent-cap filler ${i} for the per-source hour cap`,
+      agent: "midl",
+    },
+    {
+      authorization: "Bearer agent-hook-test",
+      "cf-connecting-ip": `203.0.113.${60 + i}`,
+    },
+  );
+  assert.equal(extra.status, 201, `agent fill ${i}`);
+}
+const agentOver = await call(
+  "POST",
+  "/agent",
+  {
+    kind: "need",
+    note: "Need one more after the agent source cap",
+    agent: "midl",
+  },
+  {
+    authorization: "Bearer agent-hook-test",
+    "cf-connecting-ip": "203.0.113.90",
+  },
+);
+assert.equal(agentOver.status, 429);
+assert.equal(agentOver.json.error, "rate_limited");
+ok("per-source cap on agent posts");
+
+const tipOff = await call("POST", "/tips", {
+  source_url: "https://news.ycombinator.com/item?id=1",
+  author_handle: "ada",
+  proposed_note: "Need a weekend bike trailer in town",
+});
+assert.equal(tipOff.status, 503);
+
+env.TIP_CREATE_SECRET = "tip-create-test";
+const tipDenied = await call(
+  "POST",
+  "/tips",
+  {
+    source_url: "https://news.ycombinator.com/item?id=1",
+    author_handle: "ada",
+    proposed_note: "Need a weekend bike trailer in town",
+  },
+  { authorization: "Bearer wrong" },
+);
+assert.equal(tipDenied.status, 403);
+
+const tip = await call(
+  "POST",
+  "/tips",
+  {
+    source_url: "https://news.ycombinator.com/item?id=424242",
+    author_handle: "ada",
+    proposed_note: "Need a weekend bike trailer in town",
+  },
+  {
+    authorization: "Bearer tip-create-test",
+    "cf-connecting-ip": "198.51.100.42",
+  },
+);
+assert.equal(tip.status, 201);
+assert.equal(typeof tip.json.id, "string");
+assert.match(tip.json.invite_path, /^\/tips\/confirm\?token=[0-9a-f]{64}$/);
+assert.equal("secret" in tip.json, false);
+assert.equal("proposed_note" in tip.json, false);
+const inviteToken = new URL(tip.json.invite_path, "http://needhave.local").searchParams.get("token");
+const hiddenTip = await call("GET", "/posts");
+assert.equal(leak(hiddenTip.json, "weekend bike trailer"), false);
+assert.equal(leak(hiddenTip.json, inviteToken), false);
+const peekTip = await call("GET", `/tips/${tip.json.id}`);
+assert.equal(peekTip.status, 404);
+ok("pending tips stay hidden");
+
+const earlyConfirm = await call("POST", "/tips/confirm", { token: inviteToken });
+assert.equal(earlyConfirm.status, 201);
+assert.equal(earlyConfirm.json.source, "https://news.ycombinator.com/item?id=424242".replace(/^/, "tip-confirmed:"));
+assert.equal(earlyConfirm.json.note, "Need a weekend bike trailer in town");
+assert.equal(typeof earlyConfirm.json.secret, "string");
+const confirmSecret = earlyConfirm.json.secret;
+const listedTip = await call("GET", "/posts");
+assert.equal(
+  listedTip.json.posts.some((row) => row.source === "tip-confirmed:https://news.ycombinator.com/item?id=424242"),
+  true,
+);
+assert.equal(leak(listedTip.json, confirmSecret), false);
+assert.equal(leak(listedTip.json, inviteToken), false);
+ok("confirm publishes tip-confirmed source and shows the secret once");
+
+const reuse = await call("POST", "/tips/confirm", { token: inviteToken });
+assert.equal(reuse.status, 409);
+assert.equal(reuse.json.error, "already_confirmed");
+assert.equal("secret" in reuse.json, false);
+ok("confirm token is single-use");
+
+env.TIP_TTL_MS = 1;
+const short = await call(
+  "POST",
+  "/tips",
+  {
+    source_url: "https://example.com/need/expired",
+    author_handle: "bea",
+    proposed_note: "Need an expired-token proof note that never lists",
+  },
+  {
+    authorization: "Bearer tip-create-test",
+    "cf-connecting-ip": "198.51.100.43",
+  },
+);
+assert.equal(short.status, 201);
+const expiredToken = new URL(short.json.invite_path, "http://needhave.local").searchParams.get("token");
+env.now = Date.now() + 50;
+const expired = await call("POST", "/tips/confirm", { token: expiredToken });
+assert.equal(expired.status, 410);
+assert.equal(expired.json.error, "expired");
+assert.equal("secret" in expired.json, false);
+const expiredList = await call("GET", "/posts");
+assert.equal(leak(expiredList.json, "expired-token proof"), false);
+delete env.now;
+delete env.TIP_TTL_MS;
+ok("expired tip tokens never publish");
+
+env.TURNSTILE_SECRET = "test";
+const noTurnstile = await call(
+  "POST",
+  "/intake",
+  { kind: "need", note: "Need a turnstile-gated unique note for the form path" },
+  { "cf-connecting-ip": "198.51.100.44" },
+);
+assert.equal(noTurnstile.status, 403);
+assert.equal(noTurnstile.json.error, "turnstile");
+const yesTurnstile = await call(
+  "POST",
+  "/intake",
+  {
+    kind: "need",
+    note: "Need a turnstile-gated unique note for the form path",
+    turnstile: "pass",
+  },
+  { "cf-connecting-ip": "198.51.100.44" },
+);
+assert.equal(yesTurnstile.status, 201);
+delete env.TURNSTILE_SECRET;
+ok("optional Turnstile gates HTTP intake only when configured");
+
+const { handleEmail } = await import("../src/email.js");
+const beforeEmail = (await call("GET", "/posts")).json.posts.length;
+const silent = {
+  from: "ada@example.com",
+  to: "needs@needhave.io",
+  headers: new Headers({
+    subject: "Need a quiet email that must not post while intake is off",
+    "authentication-results": "mx.cloudflare.net; dkim=pass; spf=pass; dmarc=pass",
+  }),
+  rejected: null,
+  replies: [],
+  setReject(reason) {
+    this.rejected = reason;
+  },
+  async reply(payload) {
+    this.replies.push(payload);
+  },
+};
+await handleEmail(silent, env);
+assert.equal(silent.replies.length, 0);
+assert.equal((await call("GET", "/posts")).json.posts.length, beforeEmail);
+
+env.EMAIL_INTAKE = "1";
+env.EMAIL_FROM = "needs@needhave.io";
+const spoofed = {
+  from: "spoof@example.com",
+  to: "needs@needhave.io",
+  headers: new Headers({
+    subject: "Need a spoofed email that must not land",
+    "authentication-results": "mx.cloudflare.net; dkim=fail; spf=fail; dmarc=fail",
+  }),
+  rejected: null,
+  replies: [],
+  setReject(reason) {
+    this.rejected = reason;
+  },
+  async reply(payload) {
+    this.replies.push(payload);
+  },
+};
+await handleEmail(spoofed, env);
+assert.equal(spoofed.replies.length, 0);
+assert.equal(spoofed.rejected, "unauthenticated sender");
+assert.equal(leak(spoofed, "secret"), false);
+
+const mailed = {
+  from: "ada@example.com",
+  to: "needs@needhave.io",
+  headers: new Headers({
+    subject: "Need a consented email intake note shown only to From",
+    "authentication-results": "mx.cloudflare.net; dkim=pass; spf=pass; dmarc=pass",
+  }),
+  rejected: null,
+  replies: [],
+  setReject(reason) {
+    this.rejected = reason;
+  },
+  async reply(payload) {
+    this.replies.push(payload);
+  },
+};
+await handleEmail(mailed, env);
+assert.equal(mailed.replies.length, 1);
+assert.match(mailed.replies[0].raw, /[0-9a-f]{64}/);
+assert.equal(mailed.replies[0].to, "ada@example.com");
+const emailSecret = mailed.replies[0].raw.match(/[0-9a-f]{64}/)[0];
+const emailList = await call("GET", "/posts");
+assert.equal(
+  emailList.json.posts.some((row) => row.note === "Need a consented email intake note shown only to From"),
+  true,
+);
+assert.equal(leak(emailList.json, emailSecret), false);
+assert.equal(emailList.json.posts.find((row) => row.note.includes("consented email intake")).source, "self");
+ok("email intake is off unless configured; secret goes only to From");
+
+const intakeRateIp = "203.0.113.110";
+for (let i = 0; i < 10; i++) {
+  const row = await call(
+    "POST",
+    "/intake",
+    { kind: "need", note: `Need an intake rate-limit filler ${i}` },
+    { "cf-connecting-ip": intakeRateIp },
+  );
+  assert.equal(row.status, 201);
+}
+const intakeOver = await call(
+  "POST",
+  "/intake",
+  { kind: "need", note: "Need one more after the intake ip cap" },
+  { "cf-connecting-ip": intakeRateIp },
+);
+assert.equal(intakeOver.status, 429);
+assert.equal(intakeOver.json.error, "rate_limited");
+ok("10/IP/hour limit applies to intake writes");
 
 console.log("all local calls passed");

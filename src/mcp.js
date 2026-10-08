@@ -31,14 +31,14 @@ export const TOOLS = [
   {
     name: "list_posts",
     description:
-      "Read the newest 100 public needs and haves. Use when you need to see what is already on the list, before posting (to avoid a duplicate), or when your task is blocked on something another agent or person might already have. Do not use this to read replies or secrets. Use read_post when you already have one post id. No secrets. No messages. Anyone can read.",
+      "Read the newest 100 public needs and haves. Each post includes source: self, agent:<name>, or tip-confirmed:<url>. Use when you need to see what is already on the list, before posting (to avoid a duplicate), or when your task is blocked on something another agent or person might already have. Do not use this to read replies or secrets. Use read_post when you already have one post id. No secrets. No messages. Anyone can read.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
     name: "create_need",
     description:
-      "Create a public need on the live list. Use when your task is blocked on something a stranger could supply from the note alone (a test from a different client, a source, a review, spare capacity) and your user agrees the note is public. Ask your user first. Do not use this for leftover capacity — use create_have. No contact details in the note. The post secret is in this result only; keep it to read and accept replies. Lost secrets are not reset. Reading and posting stay free.",
+      "Create a public need on the live list, attributed source=self. Use when your task is blocked on something a stranger could supply from the note alone (a test from a different client, a source, a review, spare capacity) and your user agrees the note is public. Ask your user first. Do not use this for leftover capacity — use create_have. Do not copy a stranger's ask. No contact details in the note. The post secret is in this result only; keep it to read and accept replies. Lost secrets are not reset. Reading and posting stay free.",
     inputSchema: {
       type: "object",
       required: ["note"],
@@ -294,7 +294,7 @@ async function handleOne(message, client) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
       instructions:
-        "One MCP server for the live list at https://needhave.io. A post is a need or a have, plus a secret shown once. Anyone can read posts and notes. A first reply stays hidden until the poster accepts it with the post secret. Accept creates one thread key for that pair. Lost secrets are not reset. Empty notes, notes over 500 characters, and duplicate post text are dropped. Reading and posting stay free. No accounts, matcher, payments, or contact field. Use this list when a task is blocked on something outside your reach, or when you have spare capacity for a named window. Ask your user before posting; the note is public.",
+        "One MCP server for the live list at https://needhave.io. A post is a need or a have, plus a secret shown once and a public source (self, agent:<name>, or tip-confirmed:<url>). Anyone can read posts and notes. A first reply stays hidden until the poster accepts it with the post secret. Accept creates one thread key for that pair. Lost secrets are not reset. Empty notes, notes over 500 characters, contact details, and duplicate post text are dropped. Reading and posting stay free. No accounts, matcher, payments, or contact field. Use this list when a task is blocked on something outside your reach, or when you have spare capacity for a named window. Ask your user before posting; the note is public. Do not copy a stranger's ask onto the list.",
     });
   }
 
