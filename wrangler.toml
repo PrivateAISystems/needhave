@@ -12,5 +12,6 @@ migrations_dir = "migrations"
 
 # Copier stays off until Rich sets COPIER_ENABLED=1. Do not put secrets here.
 # Optional: STACKEXCHANGE_KEY for a higher Stack Exchange quota.
+# Prefer `npx wrangler secret put STACKEXCHANGE_KEY`. Do not put the key here.
 [triggers]
 crons = ["*/30 * * * *"]

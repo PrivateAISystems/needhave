@@ -75,6 +75,7 @@ assert.deepEqual(offResult, {
   would_copy: 0,
   by_source: { hn: 0, stackexchange: 0, github: 0 },
   items: [],
+  sources: [],
 });
 assert.equal(fetches, 0);
 assert.deepEqual((await call(off, "GET", "/posts")).json, { posts: [] });
@@ -329,6 +330,16 @@ ok("ordinary posts still issue a secret and accept replies");
 
 const urls = sourceRequests(NOW, 3 * 24 * 60 * 60 * 1000).map((row) => row.url);
 const decoded = urls.map((url) => decodeURIComponent(url));
+assert.equal(urls.some((url) => url.includes("key=")), false);
+const keyed = sourceRequests(NOW, 3 * 24 * 60 * 60 * 1000, { STACKEXCHANGE_KEY: "abc-test-key" });
+assert.equal(
+  keyed.filter((row) => row.source === "stackexchange").every((row) => row.url.includes("key=abc-test-key")),
+  true,
+);
+assert.equal(
+  keyed.filter((row) => row.source !== "stackexchange").every((row) => !row.url.includes("key=")),
+  true,
+);
 assert.equal(urls.filter((url) => url.startsWith("https://hn.algolia.com/")).length, 3);
 assert.equal(decoded.some((url) => url.includes("tags=ask_hn")), true);
 assert.equal(decoded.some((url) => url.includes("tags=comment")), false);
@@ -424,6 +435,7 @@ const hiddenIds = [
   ["a389d21313a31adf2f43d64090bffce1", "Document and test stable CLI exit codes from https://github.com/Ay-obami/soro-mutants/issues/45"],
   ["673292d28c7b4c08e01d625d278d4c04", "Add `--output` for writing reports to a file from https://github.com/Ay-obami/soro-mutants/issues/48"],
   ["42dea747ebc1fe43d1413928e7a9fa0f", "Add an `operators` CLI command from https://github.com/Ay-obami/soro-mutants/issues/42"],
+  ["a40ce491600b8161d7adfa1be78f68ea", "ci-flake: hivecommons/hive from https://github.com/hivecommons/hive/issues/11134"],
 ];
 const hideEnv = env();
 for (const [id, note] of hiddenIds) {
@@ -450,8 +462,55 @@ assert.equal(hiddenRead.status, 404);
 assert.equal(hiddenRead.json.error, "not_found");
 ok("public list and read exclude hidden junk copies");
 
+const throttled = JSON.parse(
+  readFileSync(join(root, "test/fixtures/copier/stackexchange-throttled.json"), "utf8"),
+);
+const throttleEnv = env({ COPIER_ENABLED: "1", STACKEXCHANGE_KEY: "abc-test-key" });
+const logs = [];
+const origLog = console.log;
+console.log = (...args) => {
+  logs.push(args.map(String).join(" "));
+};
+let throttledRun;
+try {
+  throttledRun = await runCopier(throttleEnv, {
+    now: NOW,
+    fetchFn: async (input) => {
+      const url = String(input);
+      if (url.includes("key=abc-test-key") === false && url.startsWith("https://api.stackexchange.com/")) {
+        throw new Error("SE request missing key");
+      }
+      if (url.startsWith("https://api.stackexchange.com/")) {
+        return new Response(JSON.stringify(throttled), { status: 400 });
+      }
+      return fixtureFetch({ hn: { hits: [] }, stackexchange: { items: [] }, github: { items: [] } })(url);
+    },
+  });
+} finally {
+  console.log = origLog;
+}
+const seLog = throttledRun.sources.find((row) => row.source === "stackexchange");
+assert.ok(seLog);
+assert.equal(seLog.http_status, 400);
+assert.equal(seLog.error, "throttle_violation");
+assert.equal(seLog.backoff, 30);
+assert.equal(seLog.quota_remaining, 0);
+assert.equal(seLog.would_copy, 0);
+assert.ok(seLog.skip_reasons.throttled >= 1);
+const logText = logs.join("\n");
+assert.match(logText, /throttle_violation/);
+assert.equal(logText.includes("abc-test-key"), false);
+const publicRuns = await call(throttleEnv, "GET", "/copier/runs");
+assert.equal(publicRuns.status, 200);
+const sePublic = publicRuns.json.runs.find((row) => row.source === "stackexchange");
+assert.ok(sePublic);
+assert.equal(sePublic.http_status, 400);
+assert.equal(sePublic.error, "throttle_violation");
+assert.equal(JSON.stringify(publicRuns.json).includes("abc-test-key"), false);
+ok("throttled SE is an explicit status, logged, and listed without secrets");
+
 const copierSource = readFileSync(join(root, "src/copier.js"), "utf8");
-assert.equal(/console\.(log|info|debug|warn|error)/.test(copierSource), false);
-ok("copier does not log secrets");
+assert.match(copierSource, /console\.log\(JSON\.stringify\(\{ copier_run:/);
+ok("copier logs structured run status and does not log secrets");
 
 console.log("all copier calls passed");

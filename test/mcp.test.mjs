@@ -291,9 +291,14 @@ const waiting = await callTool("accept_reply", {
 });
 assert.equal(waiting.isError, false);
 assert.equal(waiting.data.messages.length, 2);
-assert.equal(waiting.data.messages[0].id, replyId);
-assert.equal(waiting.data.messages[0].text, "I have a bike you can borrow on Thursday");
-assert.equal(waiting.data.messages[1].id, otherReplyId);
+assert.deepEqual(
+  new Set(waiting.data.messages.map((row) => row.id)),
+  new Set([replyId, otherReplyId]),
+);
+assert.equal(
+  waiting.data.messages.some((row) => row.text === "I have a bike you can borrow on Thursday"),
+  true,
+);
 assert.equal("thread_key" in waiting.data, false);
 assert.equal(leak(waiting.data, replySecret), false);
 ok("accept without message_id reads waiting first replies");

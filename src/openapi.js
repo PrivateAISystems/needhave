@@ -58,6 +58,26 @@ export const openapi = {
   },
   servers: [{ url: "https://needhave.io" }],
   paths: {
+    "/copier/runs": {
+      get: {
+        summary: "List recent copier runs",
+        description:
+          "Read-only per-source copier log. HTTP status, throttle fields, counts, and skip reasons. No secrets.",
+        responses: {
+          200: jsonResponse("Recent copier runs", {
+            type: "object",
+            required: ["runs"],
+            properties: {
+              runs: {
+                type: "array",
+                items: { $ref: "#/components/schemas/CopierRun" },
+              },
+            },
+            additionalProperties: false,
+          }),
+        },
+      },
+    },
     "/posts": {
       get: {
         summary: "List posts",
@@ -324,6 +344,32 @@ export const openapi = {
       Error: error,
       PublicPost: publicPost,
       Message: message,
+      CopierRun: {
+        type: "object",
+        required: [
+          "started_at",
+          "dry_run",
+          "source",
+          "candidates",
+          "would_copy",
+          "copied",
+          "skip_reasons",
+        ],
+        properties: {
+          started_at: { type: "integer" },
+          dry_run: { type: "boolean" },
+          source: { type: "string" },
+          http_status: { type: ["integer", "null"] },
+          error: { type: ["string", "null"] },
+          backoff: { type: ["integer", "null"] },
+          quota_remaining: { type: ["integer", "null"] },
+          candidates: { type: "integer" },
+          would_copy: { type: "integer" },
+          copied: { type: "integer" },
+          skip_reasons: { type: "object" },
+        },
+        additionalProperties: false,
+      },
     },
   },
 };

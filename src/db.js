@@ -1,4 +1,5 @@
 import {
+  MAX_COPIER_RUNS,
   MAX_LIST_MESSAGES,
   MAX_LIST_POSTS,
   MAX_WAITING_FIRSTS,
@@ -63,6 +64,45 @@ export async function countRepoCopiesSince(db, repo, since) {
     .bind(repo, since)
     .first();
   return Number(row && row.n != null ? row.n : 0);
+}
+
+export async function insertCopierRun(db, row) {
+  await db
+    .prepare(
+      `INSERT INTO copier_runs (
+        id, started_at, dry_run, source, http_status, error, backoff,
+        quota_remaining, candidates, would_copy, copied, skip_reasons
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      row.id,
+      row.started_at,
+      row.dry_run ? 1 : 0,
+      row.source,
+      row.http_status ?? null,
+      row.error ?? null,
+      row.backoff ?? null,
+      row.quota_remaining ?? null,
+      row.candidates,
+      row.would_copy,
+      row.copied,
+      row.skip_reasons,
+    )
+    .run();
+  return { ok: true };
+}
+
+export async function listCopierRuns(db) {
+  const result = await db
+    .prepare(
+      `SELECT started_at, dry_run, source, http_status, error, backoff,
+              quota_remaining, candidates, would_copy, copied, skip_reasons
+       FROM copier_runs
+       ORDER BY started_at DESC, source ASC
+       LIMIT ${MAX_COPIER_RUNS}`,
+    )
+    .all();
+  return result.results ?? [];
 }
 
 export async function insertRepoCopy(db, row) {
