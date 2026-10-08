@@ -4,6 +4,7 @@ import {
   findPostByNote,
   findPostByNoteHash,
   findPostBySourceUrl,
+  insertCopierRun,
   insertPost,
   insertRepoCopy,
 } from "./db.js";
@@ -319,6 +320,10 @@ function sinceIsoDate(now, maxAgeMs) {
   return new Date(now - maxAgeMs).toISOString().slice(0, 10);
 }
 
+export function redactCopierUrl(url) {
+  return String(url || "").replace(/([?&]key=)[^&]*/gi, "$1redacted");
+}
+
 export function sourceRequests(now, maxAgeMs, env = {}) {
   const since = sinceUnix(now, maxAgeMs);
   const sinceDay = sinceIsoDate(now, maxAgeMs);
@@ -365,13 +370,72 @@ function requestHeaders(url) {
 }
 
 async function readJson(fetchFn, url) {
-  const response = await fetchFn(url, { headers: requestHeaders(url) });
-  if (!response.ok) return null;
   try {
-    return await response.json();
+    const response = await fetchFn(url, { headers: requestHeaders(url) });
+    let body = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
+    return { status: response.status, ok: response.ok, body };
   } catch {
-    return null;
+    return { status: 0, ok: false, body: null, error: "network" };
   }
+}
+
+function emptySkipReasons() {
+  return { throttled: 0, filter: 0, duplicate: 0, cap: 0 };
+}
+
+function emptySourceStat(source) {
+  return {
+    source,
+    http_status: null,
+    error: null,
+    backoff: null,
+    quota_remaining: null,
+    candidates: 0,
+    would_copy: 0,
+    copied: 0,
+    skip_reasons: emptySkipReasons(),
+  };
+}
+
+function recordFetch(stat, fetched) {
+  const body = fetched.body && typeof fetched.body === "object" ? fetched.body : {};
+  stat.http_status = fetched.status;
+  if (Number.isFinite(body.backoff)) stat.backoff = body.backoff;
+  if (Number.isFinite(body.quota_remaining)) stat.quota_remaining = body.quota_remaining;
+  const named = body.error_name || body.error_message || fetched.error || null;
+  if (!fetched.ok) {
+    stat.error = named || `http_${fetched.status}`;
+  } else if (body.error_id || body.error_name) {
+    stat.error = named || `error_${body.error_id}`;
+  } else if (Number.isFinite(body.backoff)) {
+    stat.error = stat.error || "backoff";
+  }
+  if (!fetched.ok || body.error_id || (Number.isFinite(body.backoff) && !fetched.ok)) {
+    stat.skip_reasons.throttled += 1;
+  }
+}
+
+export function publicSourceStats(stats) {
+  return Object.values(stats).map((stat) => ({
+    source: stat.source,
+    http_status: stat.http_status,
+    error: stat.error,
+    backoff: stat.backoff,
+    quota_remaining: stat.quota_remaining,
+    candidates: stat.candidates,
+    would_copy: stat.would_copy,
+    copied: stat.copied,
+    skip_reasons: { ...stat.skip_reasons },
+  }));
+}
+
+function logCopierRun(stats) {
+  console.log(JSON.stringify({ copier_run: publicSourceStats(stats) }));
 }
 
 async function insertCopy(env, item, now, dryRun, seenHashes) {
@@ -429,6 +493,7 @@ export async function runCopier(env, options = {}) {
       would_copy: 0,
       by_source: emptyBySource(),
       items: [],
+      sources: [],
     };
   }
 
@@ -445,28 +510,50 @@ export async function runCopier(env, options = {}) {
   const seen = new Set();
   const seenHashes = new Set();
   const items = [];
+  const stats = {
+    hn: emptySourceStat("hn"),
+    stackexchange: emptySourceStat("stackexchange"),
+    github: emptySourceStat("github"),
+  };
   let copied = 0;
 
   for (const req of sourceRequests(now, maxAge, env)) {
-    const payload = await readJson(fetchFn, req.url);
-    const found = req.parse(payload, now, maxAge);
+    const fetched = await readJson(fetchFn, req.url);
+    const stat = stats[req.source] || emptySourceStat(req.source);
+    stats[req.source] = stat;
+    recordFetch(stat, fetched);
+    const found =
+      fetched.ok && fetched.body && !fetched.body.error_id ? req.parse(fetched.body, now, maxAge) : [];
+    stat.candidates += found.length;
     for (const item of found) {
-      if (copied >= maxRun) {
-        return resultShape({ enabled: true, dryRun, copied, items, perSource });
-      }
       if (seen.has(item.source_url)) continue;
       seen.add(item.source_url);
+      if (copied >= maxRun) {
+        stat.skip_reasons.cap += 1;
+        continue;
+      }
       const used = perSource[item.source] || 0;
-      if (used >= maxSource) continue;
+      if (used >= maxSource) {
+        stat.skip_reasons.cap += 1;
+        continue;
+      }
       if (item.source === "github" && item.repo) {
         const usedRepo = perRepo.get(item.repo) || 0;
-        if (usedRepo >= maxRepo) continue;
+        if (usedRepo >= maxRepo) {
+          stat.skip_reasons.cap += 1;
+          continue;
+        }
         const dayCount = await countRepoCopiesSince(env.DB, item.repo, now - COPIER_REPO_DAY_MS);
-        if (dayCount >= maxRepoDay) continue;
+        if (dayCount >= maxRepoDay) {
+          stat.skip_reasons.cap += 1;
+          continue;
+        }
       }
       const result = await insertCopy(env, item, now, dryRun, seenHashes);
       if (result.status === "copied") {
         copied += 1;
+        stat.would_copy += 1;
+        stat.copied += dryRun ? 0 : 1;
         perSource[item.source] = used + 1;
         if (item.source === "github" && item.repo) {
           perRepo.set(item.repo, (perRepo.get(item.repo) || 0) + 1);
@@ -476,14 +563,37 @@ export async function runCopier(env, options = {}) {
           source_url: result.source_url,
           note: result.note,
         });
+      } else if (result.status === "duplicate") {
+        stat.skip_reasons.duplicate += 1;
+      } else {
+        stat.skip_reasons.filter += 1;
       }
     }
   }
 
-  return resultShape({ enabled: true, dryRun, copied, items, perSource });
+  const sources = publicSourceStats(stats);
+  logCopierRun(stats);
+  for (const stat of sources) {
+    await insertCopierRun(env.DB, {
+      id: newId(),
+      started_at: now,
+      dry_run: dryRun,
+      source: stat.source,
+      http_status: stat.http_status,
+      error: stat.error,
+      backoff: stat.backoff,
+      quota_remaining: stat.quota_remaining,
+      candidates: stat.candidates,
+      would_copy: stat.would_copy,
+      copied: stat.copied,
+      skip_reasons: JSON.stringify(stat.skip_reasons),
+    });
+  }
+
+  return resultShape({ enabled: true, dryRun, copied, items, perSource, sources });
 }
 
-function resultShape({ enabled, dryRun, copied, items, perSource }) {
+function resultShape({ enabled, dryRun, copied, items, perSource, sources }) {
   return {
     enabled,
     dry_run: Boolean(dryRun),
@@ -491,5 +601,6 @@ function resultShape({ enabled, dryRun, copied, items, perSource }) {
     would_copy: copied,
     by_source: { ...perSource },
     items,
+    sources: sources || [],
   };
 }

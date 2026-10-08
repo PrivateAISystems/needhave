@@ -127,11 +127,17 @@ assert.match(emptyList.headers.get("content-type"), /^application\/json; charset
 assert.deepEqual(emptyList.json, { posts: [] });
 ok("GET /posts stays the JSON list");
 
+const emptyRuns = await call("GET", "/copier/runs");
+assert.equal(emptyRuns.status, 200);
+assert.deepEqual(emptyRuns.json, { runs: [] });
+ok("GET /copier/runs is a public summary with no secrets");
+
 const spec = await call("GET", "/openapi.json");
 assert.equal(spec.status, 200);
 assert.match(spec.headers.get("content-type"), /^application\/json; charset=utf-8$/);
 assert.match(spec.json.openapi, /^3\./);
 assert.ok(spec.json.paths["/posts"].get);
+assert.ok(spec.json.paths["/copier/runs"].get);
 assert.ok(spec.json.paths["/posts"].post);
 assert.ok(spec.json.paths["/posts/{id}/messages"].post);
 assert.ok(spec.json.paths["/posts/{id}/accept"].post);

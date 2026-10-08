@@ -8,6 +8,7 @@ import {
   findPostByNote,
   insertMessage,
   insertPost,
+  listCopierRuns,
   listLaterByThreadHash,
   listPosts,
   listWaitingFirsts,
@@ -140,6 +141,33 @@ async function createPost(env, body, request) {
 async function getPosts(env) {
   const posts = await listPosts(env.DB);
   return json({ posts: posts.map(publicPost) });
+}
+
+function publicCopierRun(row) {
+  let skip_reasons = {};
+  try {
+    skip_reasons = row.skip_reasons ? JSON.parse(row.skip_reasons) : {};
+  } catch {
+    skip_reasons = {};
+  }
+  return {
+    started_at: row.started_at,
+    dry_run: Boolean(row.dry_run),
+    source: row.source,
+    http_status: row.http_status ?? null,
+    error: row.error ?? null,
+    backoff: row.backoff ?? null,
+    quota_remaining: row.quota_remaining ?? null,
+    candidates: row.candidates,
+    would_copy: row.would_copy,
+    copied: row.copied,
+    skip_reasons,
+  };
+}
+
+async function getCopierRuns(env) {
+  const rows = await listCopierRuns(env.DB);
+  return json({ runs: rows.map(publicCopierRun) });
 }
 
 async function getPost(env, postId) {
@@ -368,6 +396,9 @@ export async function handle(request, env) {
   }
   if (parts.length === 1 && parts[0] === "llms.txt" && method === "GET") {
     return text(LLMS_TXT, "text/plain");
+  }
+  if (parts.length === 2 && parts[0] === "copier" && parts[1] === "runs" && method === "GET") {
+    return getCopierRuns(env);
   }
   if (parts.length === 1 && parts[0] === "posts" && method === "GET") {
     return getPosts(env);

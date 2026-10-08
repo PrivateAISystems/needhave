@@ -12,6 +12,7 @@ export const COPIER_MAX_PER_REPO = 2;
 export const COPIER_MAX_PER_REPO_DAY = 2;
 export const COPIER_REPO_DAY_MS = 24 * 60 * 60 * 1000;
 export const COPIER_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+export const MAX_COPIER_RUNS = 60;
 
 const buckets = new Map();
 
