@@ -1,13 +1,30 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+
+export function loadLocalSql(root) {
+  const schema = readFileSync(join(root, "schema.sql"), "utf8");
+  const dir = join(root, "migrations");
+  let migrations = [];
+  try {
+    migrations = readdirSync(dir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort()
+      .map((name) => readFileSync(join(dir, name), "utf8"));
+  } catch {
+    migrations = [];
+  }
+  return [schema, ...migrations].join("\n");
+}
 
 /**
  * D1-shaped wrapper over node:sqlite so the Worker handle can run
  * with no Cloudflare account and no deploy.
  */
-export function createLocalEnv(schemaSql) {
+export function createLocalEnv(schemaSql, extra = {}) {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(schemaSql);
-  return { DB: new D1Like(sqlite) };
+  return { DB: new D1Like(sqlite), ...extra };
 }
 
 class D1Like {

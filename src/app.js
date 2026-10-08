@@ -91,7 +91,13 @@ async function readBody(request) {
 }
 
 function publicPost(row) {
-  return { id: row.id, kind: row.kind, note: row.note };
+  const post = { id: row.id, kind: row.kind, note: row.note };
+  if (row.source_url) post.source_url = row.source_url;
+  return post;
+}
+
+function copiedError(post) {
+  return json({ error: "copied_post", source_url: post.source_url }, 403);
 }
 
 function readSecret(body) {
@@ -123,6 +129,8 @@ async function createPost(env, body, request) {
     note,
     secret_hash: await sha256Hex(secret),
     created_at: Date.now(),
+    source_url: null,
+    note_hash: null,
   });
   if (!inserted.ok) return error(inserted.error, 409);
 
@@ -147,6 +155,7 @@ async function publicMessages() {
 async function createFirstMessage(env, postId, body, request) {
   const post = await findPost(env.DB, postId);
   if (!post) return error("not_found", 404);
+  if (post.source_url) return copiedError(post);
 
   const text = trimNote(body && body.text);
   const filtered = filterNote(text);
@@ -179,6 +188,7 @@ async function waitingMessages(env, postId, body) {
 
   const post = await findPost(env.DB, postId);
   if (!post) return error("not_found", 404);
+  if (post.source_url) return copiedError(post);
   if (post.secret_hash !== (await sha256Hex(secret))) {
     return error("bad_secret", 403);
   }
@@ -197,6 +207,7 @@ async function acceptMessage(env, postId, body) {
 
   const post = await findPost(env.DB, postId);
   if (!post) return error("not_found", 404);
+  if (post.source_url) return copiedError(post);
   if (post.secret_hash !== (await sha256Hex(secret))) {
     return error("bad_secret", 403);
   }

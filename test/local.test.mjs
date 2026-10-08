@@ -23,10 +23,10 @@ import {
 import { LLMS_TXT } from "../src/llms.js";
 import { TOOLS } from "../src/mcp.js";
 import { MAX_NOTE, MAX_POSTS_PER_IP, MAX_WAITING_FIRSTS } from "../src/limits.js";
-import { createLocalEnv } from "./d1-sqlite.mjs";
+import { createLocalEnv, loadLocalSql } from "./d1-sqlite.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const schema = readFileSync(join(root, "schema.sql"), "utf8");
+const schema = loadLocalSql(root);
 const env = createLocalEnv(schema);
 
 async function call(method, path, body, extraHeaders = {}) {

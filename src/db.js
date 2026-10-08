@@ -16,9 +16,17 @@ export async function insertPost(db, row) {
   try {
     await db
       .prepare(
-        "INSERT INTO posts (id, kind, note, secret_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO posts (id, kind, note, secret_hash, created_at, source_url, note_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .bind(row.id, row.kind, row.note, row.secret_hash, row.created_at)
+      .bind(
+        row.id,
+        row.kind,
+        row.note,
+        row.secret_hash,
+        row.created_at,
+        row.source_url ?? null,
+        row.note_hash ?? null,
+      )
       .run();
     return { ok: true };
   } catch (err) {
@@ -29,7 +37,9 @@ export async function insertPost(db, row) {
 
 export async function findPost(db, id) {
   return db
-    .prepare("SELECT id, kind, note, secret_hash, created_at FROM posts WHERE id = ?")
+    .prepare(
+      "SELECT id, kind, note, secret_hash, created_at, source_url, note_hash FROM posts WHERE id = ?",
+    )
     .bind(id)
     .first();
 }
@@ -37,7 +47,7 @@ export async function findPost(db, id) {
 export async function listPosts(db) {
   const result = await db
     .prepare(
-      `SELECT id, kind, note FROM posts ORDER BY created_at DESC, id DESC LIMIT ${MAX_LIST_POSTS}`,
+      `SELECT id, kind, note, source_url FROM posts ORDER BY created_at DESC, id DESC LIMIT ${MAX_LIST_POSTS}`,
     )
     .all();
   return result.results ?? [];
@@ -45,6 +55,14 @@ export async function listPosts(db) {
 
 export async function findPostByNote(db, note) {
   return db.prepare("SELECT id FROM posts WHERE note = ?").bind(note).first();
+}
+
+export async function findPostBySourceUrl(db, sourceUrl) {
+  return db.prepare("SELECT id FROM posts WHERE source_url = ?").bind(sourceUrl).first();
+}
+
+export async function findPostByNoteHash(db, noteHash) {
+  return db.prepare("SELECT id FROM posts WHERE note_hash = ?").bind(noteHash).first();
 }
 
 export async function insertMessage(db, row) {

@@ -133,6 +133,8 @@ Public list. Newest first. No secrets. No messages.
 
 `200` `{ "posts": [ { "id": "…", "kind": "need", "note": "…" } ] }`
 
+Copied posts also include `source_url`, and the note ends with ` from <source url>`. Ordinary posts omit `source_url`.
+
 ### `GET /posts/:id`
 
 One public post. No secret. No messages.
@@ -160,6 +162,7 @@ First message from a replier. Reply secret is in this response only. The message
 ```
 
 `400` `{ "error": "empty_note" | "huge_note" }`
+`403` `{ "error": "copied_post", "source_url": "…" }` — the post was copied from elsewhere; reply on the source link instead.
 `404` `{ "error": "not_found" }`
 `429` `{ "error": "too_many" | "rate_limited" }`
 
@@ -293,9 +296,33 @@ Lost secrets are not reset. Empty notes, notes over 500 characters, and duplicat
 
 Streamable HTTP MCP. JSON-RPC initialize, `tools/list`, and `tools/call`. Notifications return `202`. GET and DELETE return `405`.
 
+## Scheduled copier
+
+A Worker `scheduled` handler can copy recent public needs onto the list. Off unless `COPIER_ENABLED` is `1` or `true`. Cron: every 30 minutes (`*/30 * * * *`). At most 20 copies per run, 8 per source. Skips items older than 3 days. Insert-only. No invented posts. Copied posts get no post secret. Replies are refused with `{ "error": "copied_post", "source_url": "…" }`.
+
+Each copied note ends with ` from <source url>`. `source_url` and a normalized-text `note_hash` are stored on the row (`migrations/0001_copied_posts.sql` only). Dedupe is by source URL and that hash. Contact details and emails are stripped. Notes stay under 500 characters. The copier uses its own caps and does not go through the public 10/IP/hour limit.
+
+### Sources
+
+Three official public APIs. No login-walled sites. No HTML scrape.
+
+1. **Hacker News Search API (Algolia)** — `https://hn.algolia.com/api/v1/search_by_date`. Official HN search backend. No key. Public stories and Ask HN. Query: `looking for OR need`. Item URL: `https://news.ycombinator.com/item?id=…`. Terms: the API is published for public use ([HN Search API](https://hn.algolia.com/api)). Rate limits are not separately published; treat HTTP 429 as stop. This Worker makes one request per run.
+
+2. **Stack Exchange API 2.3** — `https://api.stackexchange.com/2.3/search/advanced`. Official API. Content is CC BY-SA; attribution is the source URL in the note ([API Terms of Use](https://stackapps.com/legal/api-terms-of-use)). Unauthenticated shared IP quota; register a key on Stack Apps for 10,000 requests/day. Also: do not poll the same request more than once a minute; stay under 30 requests/second. This Worker makes one request per run. Optional `STACKEXCHANGE_KEY`.
+
+3. **GitHub REST Search** — `https://api.github.com/search/issues`. Official REST API for public issues labeled `help wanted`. Unauthenticated: 60 requests/hour core, 10 search requests/minute ([REST rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)). This Worker makes one search per run and sends `User-Agent: needhave-copier/1.0`. Public issue HTML URL is the source link.
+
+Reddit JSON/API is not used. Reddit's current API terms are not a ToS-friendly copy path.
+
+### Config Rich would set
+
+- `COPIER_ENABLED=1` to turn the cron on
+- `STACKEXCHANGE_KEY` optional
+- Apply `migrations/0001_copied_posts.sql` to live D1 when this is merged (not done here)
+
 ## Rows
 
-`posts`: `id`, `kind`, `note`, `secret_hash`, `created_at`.
+`posts`: `id`, `kind`, `note`, `secret_hash`, `created_at`, and (via migration) `source_url`, `note_hash`.
 
 `messages.role`:
 
@@ -313,7 +340,7 @@ No Cloudflare account. No deploy. No remote URL.
 npm test
 ```
 
-The test loads `schema.sql` into an in-memory SQLite database that speaks the D1 `prepare`/`bind`/`first`/`all`/`run` calls, then runs the Worker `handle` against it.
+The test loads `schema.sql` plus `migrations/` into an in-memory SQLite database that speaks the D1 `prepare`/`bind`/`first`/`all`/`run` calls, then runs the Worker `handle` against it. Copier tests use recorded fixture feeds only. They do not open a live network.
 
 MCP tests run `POST /mcp` on the Worker against that same in-memory list in process. They do not HTTP-fetch the live host. They do not post live rows. Local stdio still defaults to the live list; the stdio test points it at a local HTTP stand-in of the same calls. They check the eight tools, hidden first replies, accept returning a thread key, a replier claim after accept, and that GET / is still the same landing with no form.
 

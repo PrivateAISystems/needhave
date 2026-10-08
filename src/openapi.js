@@ -1,7 +1,10 @@
 const error = {
   type: "object",
   required: ["error"],
-  properties: { error: { type: "string" } },
+  properties: {
+    error: { type: "string" },
+    source_url: { type: "string" },
+  },
   additionalProperties: false,
 };
 
@@ -12,6 +15,7 @@ const publicPost = {
     id: { type: "string" },
     kind: { type: "string", enum: ["need", "have"] },
     note: { type: "string" },
+    source_url: { type: "string" },
   },
   additionalProperties: false,
 };
@@ -57,7 +61,8 @@ export const openapi = {
     "/posts": {
       get: {
         summary: "List posts",
-        description: "Public list. Newest first. No secrets. No messages.",
+        description:
+          "Public list. Newest first. No secrets. No messages. Copied posts include source_url.",
         responses: {
           200: jsonResponse("Public list", {
             type: "object",
@@ -133,7 +138,7 @@ export const openapi = {
       post: {
         summary: "Reply",
         description:
-          "First message from a replier. Reply secret is in this response only. The message stays hidden from anyone without the post secret.",
+          "First message from a replier. Reply secret is in this response only. The message stays hidden from anyone without the post secret. Copied posts refuse replies and return the source URL.",
         parameters: [idParam],
         requestBody: {
           required: true,
@@ -156,6 +161,7 @@ export const openapi = {
             additionalProperties: false,
           }),
           400: errorResponse("empty_note or huge_note"),
+          403: errorResponse("copied_post"),
           404: errorResponse("not_found"),
           429: errorResponse("too_many or rate_limited"),
         },
