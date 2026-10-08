@@ -38,7 +38,9 @@ export async function insertPost(db, row) {
 export async function findPost(db, id) {
   return db
     .prepare(
-      "SELECT id, kind, note, secret_hash, created_at, source_url, note_hash FROM posts WHERE id = ?",
+      `SELECT id, kind, note, secret_hash, created_at, source_url, note_hash FROM posts
+       WHERE id = ?
+         AND NOT EXISTS (SELECT 1 FROM hidden_posts WHERE post_id = posts.id)`,
     )
     .bind(id)
     .first();
@@ -47,10 +49,33 @@ export async function findPost(db, id) {
 export async function listPosts(db) {
   const result = await db
     .prepare(
-      `SELECT id, kind, note, source_url FROM posts ORDER BY created_at DESC, id DESC LIMIT ${MAX_LIST_POSTS}`,
+      `SELECT id, kind, note, source_url FROM posts
+       WHERE NOT EXISTS (SELECT 1 FROM hidden_posts WHERE post_id = posts.id)
+       ORDER BY created_at DESC, id DESC LIMIT ${MAX_LIST_POSTS}`,
     )
     .all();
   return result.results ?? [];
+}
+
+export async function countRepoCopiesSince(db, repo, since) {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM copier_repo_copies WHERE repo = ? AND copied_at >= ?")
+    .bind(repo, since)
+    .first();
+  return Number(row && row.n != null ? row.n : 0);
+}
+
+export async function insertRepoCopy(db, row) {
+  try {
+    await db
+      .prepare("INSERT INTO copier_repo_copies (source_url, repo, copied_at) VALUES (?, ?, ?)")
+      .bind(row.source_url, row.repo, row.copied_at)
+      .run();
+    return { ok: true };
+  } catch (err) {
+    if (isUniqueViolation(err)) return { ok: false, error: "duplicate_note" };
+    throw err;
+  }
 }
 
 export async function findPostByNote(db, note) {
