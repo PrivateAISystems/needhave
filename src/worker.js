@@ -1,4 +1,5 @@
 import { handle } from "./app.js";
+import { runCopier } from "./copier.js";
 import { createInProcessListClient } from "./list-client.js";
 import { handleMcp, isMcpPath } from "./mcp.js";
 
@@ -11,5 +12,10 @@ export default {
       });
     }
     return handle(request, env);
+  },
+  async scheduled(_controller, env, ctx) {
+    const run = runCopier(env);
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
+    return run;
   },
 };

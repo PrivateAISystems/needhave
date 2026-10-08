@@ -8,3 +8,9 @@ compatibility_date = "2026-10-04"
 binding = "DB"
 database_name = "needhave"
 database_id = "local-only-not-deployed"
+migrations_dir = "migrations"
+
+# Copier stays off until Rich sets COPIER_ENABLED=1. Do not put secrets here.
+# Optional: STACKEXCHANGE_KEY for a higher Stack Exchange quota.
+[triggers]
+crons = ["*/30 * * * *"]

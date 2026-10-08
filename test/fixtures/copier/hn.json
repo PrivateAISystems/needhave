@@ -1,0 +1,34 @@
+{
+  "hits": [
+    {
+      "objectID": "111",
+      "title": "Looking for a public MCP test client this week",
+      "created_at_i": 1791414000
+    },
+    {
+      "objectID": "112",
+      "title": "Who is hiring? (October 2026)",
+      "created_at_i": 1791414000
+    },
+    {
+      "objectID": "113",
+      "title": "Looking for a spare bike trailer, email me at ada@example.com",
+      "created_at_i": 1791414000
+    },
+    {
+      "objectID": "114",
+      "title": "Looking for an intern last month",
+      "created_at_i": 1790553600
+    },
+    {
+      "objectID": "115",
+      "title": "Show HN: a note-taking app",
+      "created_at_i": 1791414000
+    },
+    {
+      "objectID": "116",
+      "title": "Looking for a public MCP test client this week",
+      "created_at_i": 1791414000
+    }
+  ]
+}

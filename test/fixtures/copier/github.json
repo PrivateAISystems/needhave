@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "id": 7001,
+      "title": "Need a reviewer for the public docs build",
+      "html_url": "https://github.com/example/docs/issues/12",
+      "created_at": "2026-10-07T23:00:00Z"
+    },
+    {
+      "id": 7002,
+      "title": "Need help on an old closed tracker",
+      "html_url": "https://github.com/example/docs/issues/2",
+      "created_at": "2026-09-20T00:00:00Z"
+    },
+    {
+      "id": 7003,
+      "title": "Need a review on this pull request",
+      "html_url": "https://github.com/example/docs/pull/44",
+      "created_at": "2026-10-07T23:00:00Z",
+      "pull_request": { "url": "https://api.github.com/repos/example/docs/pulls/44" }
+    }
+  ]
+}
