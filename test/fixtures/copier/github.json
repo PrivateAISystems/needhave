@@ -74,6 +74,65 @@
       "body": "Please implement a feature in this repository that has no description and no stars yet.",
       "labels": [{ "name": "help wanted" }],
       "repository": { "stargazers_count": 0, "description": "" }
+    },
+    {
+      "id": 7010,
+      "title": "Add `list --count-only`",
+      "html_url": "https://github.com/Ay-obami/soro-mutants/issues/49",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "Please add a list --count-only flag so scripts can get the number of mutants without printing every row.",
+      "labels": [{ "name": "help wanted" }]
+    },
+    {
+      "id": 7011,
+      "title": "Document and test stable CLI exit codes",
+      "html_url": "https://github.com/Ay-obami/soro-mutants/issues/45",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "Please document and test the stable CLI exit codes so callers can rely on them.",
+      "labels": [{ "name": "help wanted" }]
+    },
+    {
+      "id": 7012,
+      "title": "Add `--output` for writing reports to a file",
+      "html_url": "https://github.com/Ay-obami/soro-mutants/issues/48",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "Please add an --output flag so reports can be written to a file instead of stdout.",
+      "labels": [{ "name": "help wanted" }]
+    },
+    {
+      "id": 7013,
+      "title": "Add an `operators` CLI command",
+      "html_url": "https://github.com/Ay-obami/soro-mutants/issues/42",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "Please add an operators command that lists the mutation operators this CLI supports.",
+      "labels": [{ "name": "help wanted" }]
+    },
+    {
+      "id": 7014,
+      "title": "Need a public sample of the webhook retry payload",
+      "html_url": "https://github.com/example/one-repo/issues/1",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "We need a public sample JSON payload so integrators can test webhook retries without guessing the schema.",
+      "labels": [{ "name": "help wanted" }],
+      "repository": { "stargazers_count": 8, "description": "One repo" }
+    },
+    {
+      "id": 7015,
+      "title": "Need a second public sample for failed webhook deliveries",
+      "html_url": "https://github.com/example/one-repo/issues/2",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "We need a second public sample that shows a failed delivery so clients can test error handling.",
+      "labels": [{ "name": "help wanted" }],
+      "repository": { "stargazers_count": 8, "description": "One repo" }
+    },
+    {
+      "id": 7016,
+      "title": "Need a third public sample for delayed webhook deliveries",
+      "html_url": "https://github.com/example/one-repo/issues/3",
+      "created_at": "2026-10-07T23:00:00Z",
+      "body": "We need a third public sample that shows a delayed delivery so clients can test timeout handling.",
+      "labels": [{ "name": "help wanted" }],
+      "repository": { "stargazers_count": 8, "description": "One repo" }
     }
   ]
 }

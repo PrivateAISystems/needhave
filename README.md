@@ -133,7 +133,7 @@ Public list. Newest first. No secrets. No messages.
 
 `200` `{ "posts": [ { "id": "…", "kind": "need", "note": "…" } ] }`
 
-Copied posts also include `source_url`, and the note ends with ` from <source url>`. Stack Exchange copies end with ` from <url> (by <author>, CC BY-SA)` so the CC BY-SA attribution stays in the 500-character note. Ordinary posts omit `source_url`.
+Copied posts also include `source_url`, and the note ends with ` from <source url>`. Stack Exchange copies end with ` from <url> (by <author>, CC BY-SA)` so the CC BY-SA attribution stays in the 500-character note. Ordinary posts omit `source_url`. Hidden copies are omitted from this list and from `GET /posts/:id`.
 
 ### `GET /posts/:id`
 
@@ -308,11 +308,11 @@ Each copied note ends with ` from <source url>`. Stack Exchange notes add `(by <
 
 Three official public APIs. No login-walled sites. No HTML scrape.
 
-1. **Hacker News Search API (Algolia)** — `https://hn.algolia.com/api/v1/search_by_date`. Official HN search backend. No key. Algolia default-AND would treat `looking for OR need` as every word required, so the copier issues separate queries: Ask HN (`tags=ask_hn`), stories matching `looking for` or `seeking`, and comments matching `looking for`, `seeking`, or `anyone know`. Item URL: `https://news.ycombinator.com/item?id=…`. Freshness: `created_at_i` inside 3 days. Terms: the API is published for public use ([HN Search API](https://hn.algolia.com/api)). Rate limits are not separately published; treat HTTP 429 as stop.
+1. **Hacker News Search API (Algolia)** — `https://hn.algolia.com/api/v1/search_by_date`. Official HN search backend. No key. Separate queries for Ask HN and stories matching `looking for` or `seeking`. Comment searches are not used. Vague titles (`Looking for Help`) and joke titles are dropped; a title must name a concrete object. Item URL: `https://news.ycombinator.com/item?id=…`. Freshness: `created_at_i` inside 3 days. Terms: the API is published for public use ([HN Search API](https://hn.algolia.com/api)). Rate limits are not separately published; treat HTTP 429 as stop.
 
-2. **Stack Exchange API 2.3** — `https://api.stackexchange.com/2.3/questions`. Official API. Recent questions are treated as needs when the title is a how-do-I / how-can-I / is-there / can-I / looking-for question. Closed, duplicate, negative-score, and bare why/how-to debug titles are dropped; unanswered questions are copied first. Content is CC BY-SA; the note must name the author and license ([API Terms of Use](https://stackapps.com/legal/api-terms-of-use)). Unauthenticated shared IP quota; register a key on Stack Apps for 10,000 requests/day. Also: do not poll the same request more than once a minute; stay under 30 requests/second. Optional `STACKEXCHANGE_KEY`.
+2. **Stack Exchange API 2.3** — `https://api.stackexchange.com/2.3/search/advanced`. Official API. Title searches over the last 3 days for `how do I`, `how can I`, `is there`, and `looking for`. Closed, duplicate, and negative-score questions are dropped; unanswered questions are copied first. Content is CC BY-SA; the note must name the author and license ([API Terms of Use](https://stackapps.com/legal/api-terms-of-use)). Unauthenticated shared IP quota; register a key on Stack Apps for 10,000 requests/day. Also: do not poll the same request more than once a minute; stay under 30 requests/second. Optional `STACKEXCHANGE_KEY`.
 
-3. **GitHub REST Search** — `https://api.github.com/search/issues`. Official REST API for public issues labeled `help wanted`. Titles do not need need-words; the label and body are the signal. Drops Hacktoberfest busywork (`hacktoberfest` label, typo / README / add-my-name), plain bug reports (bug label plus a stack trace with no ask), empty bodies, good-first-issue without help wanted, and empty no-star repos when that metadata is present. Unauthenticated: 60 requests/hour core, 10 search requests/minute ([REST rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)). Sends `User-Agent: needhave-copier/1.0`. Public issue HTML URL is the source link.
+3. **GitHub REST Search** — `https://api.github.com/search/issues`. Official REST API for public issues labeled `help wanted`. Titles do not need need-words; the label and body are the signal. At most 2 copies per repo per run and per day (`copier_repo_copies`). Drops repos whose recent issues look like routine bulk task lists, Hacktoberfest busywork, typo / README / add-my-name, plain bug reports, empty bodies, good-first-issue without help wanted, and empty no-star repos when that metadata is present. Unauthenticated: 60 requests/hour core, 10 search requests/minute ([REST rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)). Sends `User-Agent: needhave-copier/1.0`. Public issue HTML URL is the source link.
 
 Reddit JSON/API is not used. Reddit's current API terms are not a ToS-friendly copy path.
 
@@ -321,11 +321,15 @@ Reddit JSON/API is not used. Reddit's current API terms are not a ToS-friendly c
 - `COPIER_ENABLED=1` to turn the cron on
 - `COPIER_DRY_RUN=1` to count candidates without inserting
 - `STACKEXCHANGE_KEY` optional
-- Apply `migrations/0001_copied_posts.sql` to live D1 when this is merged (not done here)
+- Apply `migrations/0001_copied_posts.sql` and `migrations/0002_hidden_posts.sql` to live D1 when this is merged (not done here)
 
 ## Rows
 
 `posts`: `id`, `kind`, `note`, `secret_hash`, `created_at`, and (via migration) `source_url`, `note_hash`.
+
+`hidden_posts`: insert-only `post_id`, `reason`, `hidden_at`. Public list, read, and MCP omit those posts. No deletes.
+
+`copier_repo_copies`: insert-only GitHub repo copy log for the daily per-repo cap.
 
 `messages.role`:
 

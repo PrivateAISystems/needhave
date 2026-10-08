@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
+import { insertPost } from "../src/db.js";
 import { LANDING_HTML } from "../src/landing.js";
 import { createListClient, LIVE_LIST } from "../src/list-client.js";
 import { MAX_NOTE, MAX_POSTS_PER_IP } from "../src/limits.js";
@@ -476,5 +477,23 @@ assert.deepEqual(
   names,
 );
 ok("stdio MCP server lists the same eight tools");
+
+await insertPost(env.DB, {
+  id: "e46e3201306590da51457ee90b83a2a3",
+  kind: "need",
+  note: "Looking for Help from https://news.ycombinator.com/item?id=49968927",
+  secret_hash: "cd".repeat(32),
+  created_at: Date.now(),
+  source_url: "https://news.ycombinator.com/item?id=49968927",
+  note_hash: "hidden-mcp",
+});
+const listedHidden = await callTool("list_posts");
+assert.equal(
+  (listedHidden.data.posts || []).some((post) => post.id === "e46e3201306590da51457ee90b83a2a3"),
+  false,
+);
+const readHidden = await callTool("read_post", { id: "e46e3201306590da51457ee90b83a2a3" });
+assert.equal(readHidden.data.error, "not_found");
+ok("MCP list and read exclude hidden posts");
 
 console.log("all mcp calls passed");

@@ -1,15 +1,20 @@
 import { newId, newSecret, sha256Hex } from "./crypto.js";
 import {
+  countRepoCopiesSince,
   findPostByNote,
   findPostByNoteHash,
   findPostBySourceUrl,
   insertPost,
+  insertRepoCopy,
 } from "./db.js";
 import { filterNote, normalizeNote, stripContacts, trimNote } from "./filter.js";
 import {
   COPIER_MAX_AGE_MS,
+  COPIER_MAX_PER_REPO,
+  COPIER_MAX_PER_REPO_DAY,
   COPIER_MAX_PER_RUN,
   COPIER_MAX_PER_SOURCE,
+  COPIER_REPO_DAY_MS,
   MAX_NOTE,
 } from "./limits.js";
 
@@ -25,11 +30,19 @@ const QUESTION_RE =
 const SEEK_RE =
   /\b(looking for|seeking|need|needed|needs|is there|are there|where can i|how (?:do|can) i|can (?:i|someone|anyone)|does anyone|anyone (?:have|know)|recommend|be my cofounder|in search of|what(?:'s| is) the best)\b/i;
 const SE_SEEK_RE =
-  /\b(looking for|is there|are there|can i|can we|how do i|how can i|does anyone|recommend|where can i|in search of)\b/i;
+  /\b(looking for|is there|are there|can i|can we|how do i|how can i|how to|does anyone|recommend|where can i|in search of|what(?:'s| is) the best)\b/i;
 const GH_BUSY_RE =
   /\b(typo|readme|add[- ]my[- ]name|add me as contributor|update readme)\b/i;
 const GH_STACK_RE = /traceback|stack trace|\berror:\s|exception\b|at [a-z0-9_$.]+\(/i;
 const GH_ASK_RE = /\b(need|please|can someone|looking for|how (?:do|can)|help wanted|would like)\b/i;
+const JOKE_RE = /\b(curry from the moon|from the moon)\b/i;
+const VAGUE_ONLY_RE =
+  /^(ask hn:\s*)?(looking for help|need help|please help|help wanted|seeking (help|answers|advice)|need (help|advice|answers)|be my cofounder)\s*[.!?]*$/i;
+const GENERIC_TOKEN_RE =
+  /^(help|someone|somebody|something|anything|anyone|please|thanks|thank|advice|answers|support|input|thoughts|ideas|cofounder|partner|person|people|guys|just|really|very|cool)$/i;
+const GH_BULK_TASK_RE = /^(add|document|implement|update|create|write|refactor|rename|extract|move)\b/i;
+const COMMENT_NEED_RE =
+  /\b(i need|looking for (?:someone|a |an |the )|does anyone know of|recommend a )\b/i;
 
 function enabled(env) {
   const flag = env && env.COPIER_ENABLED;
@@ -65,19 +78,26 @@ export function decodeEntities(text) {
     .replace(/&gt;/g, ">");
 }
 
+export function flattenText(text) {
+  return decodeEntities(text)
+    .replace(/[\u00a0\u202f\u2007\u2009]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function stripHtml(text) {
   return decodeEntities(String(text || "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 }
 
 export function isNeedText(text) {
-  const note = trimNote(text);
+  const note = flattenText(text);
   if (!note) return false;
   if (SKIP_RE.test(note)) return false;
   return NEED_RE.test(note);
 }
 
 export function isQuestionNeed(text) {
-  const note = trimNote(decodeEntities(text));
+  const note = flattenText(text);
   if (!note || SKIP_RE.test(note)) return false;
   if (note.endsWith("?")) return true;
   if (ASK_RE.test(note)) return true;
@@ -86,24 +106,36 @@ export function isQuestionNeed(text) {
 }
 
 export function isAskNeed(text) {
-  const note = trimNote(decodeEntities(text));
+  const note = flattenText(text);
   if (!note || SKIP_RE.test(note)) return false;
   const rest = note.replace(/^(ask hn:|ask:)\s*/i, "").trim();
   return Boolean(rest) && SEEK_RE.test(rest);
 }
 
 export function isSeNeed(text) {
-  const note = trimNote(decodeEntities(text));
+  const note = flattenText(text);
   if (!note || SKIP_RE.test(note)) return false;
   return SE_SEEK_RE.test(note);
 }
 
 export function isCommentNeed(text) {
-  const note = trimNote(text);
+  const note = flattenText(text);
   if (!note || SKIP_RE.test(note)) return false;
-  return /\b(looking for|seeking|anyone know|does anyone|in search of|anyone (?:have|know))\b/i.test(
-    note,
-  );
+  if (note.length < 80) return false;
+  return COMMENT_NEED_RE.test(note);
+}
+
+export function hasConcreteObject(text) {
+  const note = flattenText(text).replace(/^(ask hn:|ask:)\s*/i, "");
+  if (!note || JOKE_RE.test(note) || VAGUE_ONLY_RE.test(note)) return false;
+  const stripped = note
+    .replace(
+      /\b(looking for|look for|seeking|needed?|needs|please|help|wanted|does anyone|anyone know|in search of|be my)\b/gi,
+      " ",
+    )
+    .replace(/[^a-z0-9]+/gi, " ");
+  const tokens = stripped.toLowerCase().split(/\s+/).filter(Boolean);
+  return tokens.some((token) => token.length >= 4 && !GENERIC_TOKEN_RE.test(token));
 }
 
 export function sourceSuffix(item) {
@@ -128,9 +160,9 @@ export function buildCopiedNote(item) {
 function acceptsSourceText(item, body) {
   if (item.source === "github") return true;
   if (item.source === "stackexchange") return isSeNeed(body);
-  if (item.kind === "ask") return isAskNeed(body);
-  if (item.kind === "comment") return isCommentNeed(body);
-  return isNeedText(body);
+  if (item.kind === "comment") return isCommentNeed(body) && hasConcreteObject(body);
+  if (item.kind === "ask") return isAskNeed(body) && hasConcreteObject(body);
+  return isNeedText(body) && hasConcreteObject(body);
 }
 
 function hnKind(hit) {
@@ -165,6 +197,7 @@ export function parseHnHits(payload, now, maxAgeMs) {
     const kind = hnKind(hit);
     if (!text || !source_url || !Number.isFinite(created)) continue;
     if (now - created > maxAgeMs) continue;
+    if (kind === "comment") continue;
     items.push({ source_url, text, created_at: created, source: "hn", kind });
   }
   return items;
@@ -207,6 +240,31 @@ function isLowQualityRepo(issue) {
   return stars === 0 && !desc;
 }
 
+export function githubRepo(url) {
+  const match = String(url || "").match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\//i);
+  return match ? `${match[1]}/${match[2]}`.toLowerCase() : null;
+}
+
+export function isRoutineTaskTitle(title) {
+  const note = flattenText(title);
+  if (!note) return false;
+  return GH_BULK_TASK_RE.test(note) && note.length < 80;
+}
+
+export function bulkReposFromIssues(issues) {
+  const counts = new Map();
+  for (const issue of issues) {
+    const repo = githubRepo(issue.html_url);
+    if (!repo || !isRoutineTaskTitle(issue.title)) continue;
+    counts.set(repo, (counts.get(repo) || 0) + 1);
+  }
+  const bulk = new Set();
+  for (const [repo, n] of counts) {
+    if (n >= 3) bulk.add(repo);
+  }
+  return bulk;
+}
+
 export function isGithubJunk(issue) {
   const labels = githubLabels(issue);
   if (labels.includes("hacktoberfest")) return true;
@@ -225,7 +283,7 @@ export function isGithubJunk(issue) {
 
 export function parseGithubHits(payload, now, maxAgeMs) {
   const issues = payload && Array.isArray(payload.items) ? payload.items : [];
-  const items = [];
+  const recent = [];
   for (const issue of issues) {
     const created = Date.parse(issue.created_at);
     const title = trimNote(issue.title);
@@ -233,8 +291,22 @@ export function parseGithubHits(payload, now, maxAgeMs) {
     if (!title || !source_url || !Number.isFinite(created)) continue;
     if (issue.pull_request) continue;
     if (now - created > maxAgeMs) continue;
+    recent.push(issue);
+  }
+  const bulk = bulkReposFromIssues(recent);
+  const items = [];
+  for (const issue of recent) {
+    const source_url = issue.html_url;
+    const repo = githubRepo(source_url);
+    if (repo && bulk.has(repo)) continue;
     if (isGithubJunk(issue)) continue;
-    items.push({ source_url, text: title, created_at: created, source: "github" });
+    items.push({
+      source_url,
+      text: trimNote(issue.title),
+      created_at: Date.parse(issue.created_at),
+      source: "github",
+      repo,
+    });
   }
   return items;
 }
@@ -268,26 +340,11 @@ export function sourceRequests(now, maxAgeMs, env = {}) {
       url: `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent("seeking")}&tags=story&hitsPerPage=20&numericFilters=${numeric}`,
       parse: parseHnHits,
     },
-    {
-      source: "hn",
-      url: `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent("looking for")}&tags=comment&hitsPerPage=30&numericFilters=${numeric}&restrictSearchableAttributes=comment_text`,
-      parse: parseHnHits,
-    },
-    {
-      source: "hn",
-      url: `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent("seeking")}&tags=comment&hitsPerPage=20&numericFilters=${numeric}&restrictSearchableAttributes=comment_text`,
-      parse: parseHnHits,
-    },
-    {
-      source: "hn",
-      url: `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent("anyone know")}&tags=comment&hitsPerPage=20&numericFilters=${numeric}&restrictSearchableAttributes=comment_text`,
-      parse: parseHnHits,
-    },
-    {
+    ...["how do I", "how can I", "is there", "looking for"].map((title) => ({
       source: "stackexchange",
-      url: `https://api.stackexchange.com/2.3/questions?order=desc&sort=creation&site=stackoverflow&fromdate=${since}&pagesize=50&filter=withbody${seKey}`,
+      url: `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=creation&site=stackoverflow&fromdate=${since}&pagesize=30&filter=withbody&title=${encodeURIComponent(title)}${seKey}`,
       parse: parseStackHits,
-    },
+    })),
     {
       source: "github",
       url: `https://api.github.com/search/issues?q=${encodeURIComponent(`label:"help wanted" is:issue is:open archived:false created:>${sinceDay} -label:hacktoberfest`)}&sort=created&order=desc&per_page=30`,
@@ -344,6 +401,13 @@ async function insertCopy(env, item, now, dryRun, seenHashes) {
     note_hash,
   });
   if (!inserted.ok) return { status: "duplicate" };
+  if (item.source === "github" && item.repo) {
+    await insertRepoCopy(env.DB, {
+      source_url: item.source_url,
+      repo: item.repo,
+      copied_at: now,
+    });
+  }
   return { status: "copied", note, source_url: item.source_url, source: item.source };
 }
 
@@ -372,9 +436,12 @@ export async function runCopier(env, options = {}) {
   const maxAge = intEnv(env, "COPIER_MAX_AGE_MS", COPIER_MAX_AGE_MS);
   const maxRun = intEnv(env, "COPIER_MAX_PER_RUN", COPIER_MAX_PER_RUN);
   const maxSource = intEnv(env, "COPIER_MAX_PER_SOURCE", COPIER_MAX_PER_SOURCE);
+  const maxRepo = intEnv(env, "COPIER_MAX_PER_REPO", COPIER_MAX_PER_REPO);
+  const maxRepoDay = intEnv(env, "COPIER_MAX_PER_REPO_DAY", COPIER_MAX_PER_REPO_DAY);
   const fetchFn = options.fetchFn || globalThis.fetch;
   const dryRun = dryRunEnabled(env, options);
   const perSource = emptyBySource();
+  const perRepo = new Map();
   const seen = new Set();
   const seenHashes = new Set();
   const items = [];
@@ -391,10 +458,19 @@ export async function runCopier(env, options = {}) {
       seen.add(item.source_url);
       const used = perSource[item.source] || 0;
       if (used >= maxSource) continue;
+      if (item.source === "github" && item.repo) {
+        const usedRepo = perRepo.get(item.repo) || 0;
+        if (usedRepo >= maxRepo) continue;
+        const dayCount = await countRepoCopiesSince(env.DB, item.repo, now - COPIER_REPO_DAY_MS);
+        if (dayCount >= maxRepoDay) continue;
+      }
       const result = await insertCopy(env, item, now, dryRun, seenHashes);
       if (result.status === "copied") {
         copied += 1;
         perSource[item.source] = used + 1;
+        if (item.source === "github" && item.repo) {
+          perRepo.set(item.repo, (perRepo.get(item.repo) || 0) + 1);
+        }
         items.push({
           source: result.source,
           source_url: result.source_url,

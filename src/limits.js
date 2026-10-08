@@ -8,6 +8,9 @@ export const MAX_FIRST_REPLIES_PER_IP = 20;
 export const RATE_WINDOW_MS = 60 * 60 * 1000;
 export const COPIER_MAX_PER_RUN = 20;
 export const COPIER_MAX_PER_SOURCE = 8;
+export const COPIER_MAX_PER_REPO = 2;
+export const COPIER_MAX_PER_REPO_DAY = 2;
+export const COPIER_REPO_DAY_MS = 24 * 60 * 60 * 1000;
 export const COPIER_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 
 const buckets = new Map();

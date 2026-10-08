@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { handle } from "../src/app.js";
 import {
   buildCopiedNote,
+  bulkReposFromIssues,
+  hasConcreteObject,
   isAskNeed,
   isCommentNeed,
   isGithubJunk,
@@ -14,6 +16,7 @@ import {
   sourceRequests,
   sourceSuffix,
 } from "../src/copier.js";
+import { insertPost } from "../src/db.js";
 import { createLocalEnv, loadLocalSql } from "./d1-sqlite.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -83,7 +86,7 @@ assert.equal(first.enabled, true);
 assert.equal(first.dry_run, false);
 assert.equal(first.copied, 9);
 assert.equal(first.would_copy, 9);
-assert.deepEqual(first.by_source, { hn: 5, stackexchange: 3, github: 1 });
+assert.deepEqual(first.by_source, { hn: 3, stackexchange: 3, github: 3 });
 const notes = first.items.map((item) => item.note);
 assert.equal(
   notes.includes("Looking for a public MCP test client this week from https://news.ycombinator.com/item?id=111"),
@@ -99,18 +102,8 @@ assert.equal(
   ),
   true,
 );
-assert.equal(
-  notes.includes(
-    "Looking for a Rust mentor who can review a small public CLI this week from https://news.ycombinator.com/item?id=119",
-  ),
-  true,
-);
-assert.equal(
-  notes.includes(
-    "Anyone know a cheap VPS that still allows inbound SMTP? from https://news.ycombinator.com/item?id=120",
-  ),
-  true,
-);
+assert.equal(notes.some((note) => note.includes("item?id=119")), false);
+assert.equal(notes.some((note) => note.includes("item?id=120")), false);
 assert.equal(notes.some((note) => note.includes("ada@example.com")), false);
 assert.equal(notes.some((note) => note.includes("Who is hiring")), false);
 assert.equal(notes.some((note) => note.includes("Show HN")), false);
@@ -147,6 +140,14 @@ assert.equal(notes.some((note) => note.includes("hacktoberfest") || note.include
 assert.equal(notes.some((note) => note.includes("typo in README")), false);
 assert.equal(notes.some((note) => note.includes("App crashes")), false);
 assert.equal(notes.some((note) => note.includes("Empty repo")), false);
+assert.equal(notes.some((note) => note.includes("item?id=50007416")), false);
+assert.equal(notes.some((note) => note.includes("item?id=50006926")), false);
+assert.equal(notes.some((note) => note.includes("item?id=49968927")), false);
+assert.equal(notes.some((note) => note.includes("item?id=50003240")), false);
+assert.equal(notes.some((note) => note.includes("Looking for Help")), false);
+assert.equal(notes.some((note) => note.includes("curry from the moon")), false);
+assert.equal(notes.some((note) => note.includes("soro-mutants")), false);
+assert.equal(notes.filter((note) => note.includes("example/one-repo")).length, 2);
 ok("copies recent real needs and skips hiring, old, junk, and pull requests");
 
 const listed = await call(on, "GET", "/posts");
@@ -287,10 +288,10 @@ const sourceCapped = await runCopier(sourceCapEnv, {
     github: github,
   }),
 });
-assert.equal(sourceCapped.copied, 5);
+assert.equal(sourceCapped.copied, 6);
 assert.equal(sourceCapped.by_source.hn, 2);
 assert.equal(sourceCapped.by_source.stackexchange, 2);
-assert.equal(sourceCapped.by_source.github, 1);
+assert.equal(sourceCapped.by_source.github, 2);
 ok("per-source cap applies inside a run");
 
 const dryEnv = env({ COPIER_DRY_RUN: "1" });
@@ -299,7 +300,7 @@ assert.equal(dry.enabled, true);
 assert.equal(dry.dry_run, true);
 assert.equal(dry.copied, 0);
 assert.equal(dry.would_copy, 9);
-assert.deepEqual(dry.by_source, { hn: 5, stackexchange: 3, github: 1 });
+assert.deepEqual(dry.by_source, { hn: 3, stackexchange: 3, github: 3 });
 assert.equal((await call(dryEnv, "GET", "/posts")).json.posts.length, 0);
 ok("dry-run reports per-source would-copy counts and does not insert");
 
@@ -328,12 +329,13 @@ ok("ordinary posts still issue a secret and accept replies");
 
 const urls = sourceRequests(NOW, 3 * 24 * 60 * 60 * 1000).map((row) => row.url);
 const decoded = urls.map((url) => decodeURIComponent(url));
-assert.equal(urls.filter((url) => url.startsWith("https://hn.algolia.com/")).length >= 5, true);
+assert.equal(urls.filter((url) => url.startsWith("https://hn.algolia.com/")).length, 3);
 assert.equal(decoded.some((url) => url.includes("tags=ask_hn")), true);
-assert.equal(decoded.some((url) => url.includes("tags=comment") && url.includes("looking for")), true);
+assert.equal(decoded.some((url) => url.includes("tags=comment")), false);
 assert.equal(decoded.some((url) => url.includes("tags=story") && url.includes("looking for")), true);
 assert.equal(decoded.some((url) => url.includes("looking for OR need")), false);
-assert.equal(urls.some((url) => url.startsWith("https://api.stackexchange.com/2.3/questions")), true);
+assert.equal(urls.some((url) => url.startsWith("https://api.stackexchange.com/2.3/search/advanced")), true);
+assert.equal(urls.some((url) => url.startsWith("https://api.stackexchange.com/2.3/questions?")), false);
 assert.equal(urls.some((url) => url.startsWith("https://api.github.com/")), true);
 assert.equal(decoded.some((url) => url.includes("-label:hacktoberfest")), true);
 assert.equal(decoded.some((url) => /need|looking for/.test(url) && url.includes("api.github.com")), false);
@@ -347,8 +349,26 @@ assert.equal(isSeNeed("Why does TypeScript fail to infer a callback parameter?")
 assert.equal(isAskNeed("Ask HN: How do I find a technical cofounder in Chicago?"), true);
 assert.equal(isAskNeed("Ask HN: I quit my job today"), false);
 assert.equal(isAskNeed("Ask HN: Are we losing control of AI?"), false);
-assert.equal(isCommentNeed("Looking for a Rust mentor"), true);
+assert.equal(isCommentNeed("Looking for a Rust mentor"), false);
+assert.equal(
+  isCommentNeed(
+    "I need a mentor who can review a small public CLI this week and explain the ownership model",
+  ),
+  true,
+);
 assert.equal(isCommentNeed("I need to restart nginx after every deploy"), false);
+assert.equal(hasConcreteObject("Looking for a public MCP test client this week"), true);
+assert.equal(hasConcreteObject("Looking for Help"), false);
+assert.equal(hasConcreteObject("Be my cofounder (curry from the moon)"), false);
+assert.equal(
+  bulkReposFromIssues([
+    { title: "Add `list --count-only`", html_url: "https://github.com/Ay-obami/soro-mutants/issues/49" },
+    { title: "Document and test stable CLI exit codes", html_url: "https://github.com/Ay-obami/soro-mutants/issues/45" },
+    { title: "Add `--output` for writing reports to a file", html_url: "https://github.com/Ay-obami/soro-mutants/issues/48" },
+    { title: "Add an `operators` CLI command", html_url: "https://github.com/Ay-obami/soro-mutants/issues/42" },
+  ]).has("ay-obami/soro-mutants"),
+  true,
+);
 assert.equal(
   isGithubJunk({
     title: "Fix typo in README",
@@ -378,6 +398,57 @@ assert.equal(
   " from https://news.ycombinator.com/item?id=111",
 );
 ok("question, comment, junk, and attribution helpers match the spec");
+
+const repoOnly = {
+  items: github.items.filter((issue) => String(issue.html_url).includes("example/one-repo")),
+};
+const repoEnv = env({ COPIER_ENABLED: "1" });
+const repoFirst = await runCopier(repoEnv, {
+  now: NOW,
+  fetchFn: fixtureFetch({ hn: { hits: [] }, stackexchange: { items: [] }, github: repoOnly }),
+});
+assert.equal(repoFirst.copied, 2);
+const repoAgain = await runCopier(repoEnv, {
+  now: NOW + 60 * 60 * 1000,
+  fetchFn: fixtureFetch({ hn: { hits: [] }, stackexchange: { items: [] }, github: repoOnly }),
+});
+assert.equal(repoAgain.copied, 0);
+ok("cross-run per-repo daily cap is 2");
+
+const hiddenIds = [
+  ["1409933e8afb2acfca8aefc8b7929104", "Very cool! Yes, I was looking for the SOTA models. from https://news.ycombinator.com/item?id=50007416"],
+  ["0a6c95fce4302d8be7e20649aca0a662", "I am seeking answers I haven't been able to find. from https://news.ycombinator.com/item?id=50006926"],
+  ["e46e3201306590da51457ee90b83a2a3", "Looking for Help from https://news.ycombinator.com/item?id=49968927"],
+  ["0dc477dccbce2315feb6c5a1f738a43f", "Be my cofounder (curry from the moon) from https://news.ycombinator.com/item?id=50003240"],
+  ["bb08fc2c352649f6fed0dc6316c592bd", "Add `list --count-only` from https://github.com/Ay-obami/soro-mutants/issues/49"],
+  ["a389d21313a31adf2f43d64090bffce1", "Document and test stable CLI exit codes from https://github.com/Ay-obami/soro-mutants/issues/45"],
+  ["673292d28c7b4c08e01d625d278d4c04", "Add `--output` for writing reports to a file from https://github.com/Ay-obami/soro-mutants/issues/48"],
+  ["42dea747ebc1fe43d1413928e7a9fa0f", "Add an `operators` CLI command from https://github.com/Ay-obami/soro-mutants/issues/42"],
+];
+const hideEnv = env();
+for (const [id, note] of hiddenIds) {
+  await insertPost(hideEnv.DB, {
+    id,
+    kind: "need",
+    note,
+    secret_hash: "ab".repeat(32),
+    created_at: NOW,
+    source_url: note.split(" from ").pop(),
+    note_hash: id,
+  });
+}
+const visible = await call(hideEnv, "POST", "/posts", {
+  kind: "need",
+  note: "Need a visible handwritten note after junk copies are hidden",
+});
+assert.equal(visible.status, 201);
+const hiddenList = await call(hideEnv, "GET", "/posts");
+assert.equal(hiddenList.json.posts.some((post) => hiddenIds.some(([id]) => id === post.id)), false);
+assert.equal(hiddenList.json.posts.some((post) => post.id === visible.json.id), true);
+const hiddenRead = await call(hideEnv, "GET", `/posts/${hiddenIds[0][0]}`);
+assert.equal(hiddenRead.status, 404);
+assert.equal(hiddenRead.json.error, "not_found");
+ok("public list and read exclude hidden junk copies");
 
 const copierSource = readFileSync(join(root, "src/copier.js"), "utf8");
 assert.equal(/console\.(log|info|debug|warn|error)/.test(copierSource), false);
