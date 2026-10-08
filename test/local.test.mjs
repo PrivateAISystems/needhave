@@ -132,12 +132,18 @@ assert.equal(emptyRuns.status, 200);
 assert.deepEqual(emptyRuns.json, { runs: [] });
 ok("GET /copier/runs is a public summary with no secrets");
 
+const ingestOff = await call("POST", "/copier/ingest", { source: "stackexchange", items: [] });
+assert.equal(ingestOff.status, 404);
+assert.equal(ingestOff.json.error, "not_found");
+ok("POST /copier/ingest is off unless the ingest secret is set");
+
 const spec = await call("GET", "/openapi.json");
 assert.equal(spec.status, 200);
 assert.match(spec.headers.get("content-type"), /^application\/json; charset=utf-8$/);
 assert.match(spec.json.openapi, /^3\./);
 assert.ok(spec.json.paths["/posts"].get);
 assert.ok(spec.json.paths["/copier/runs"].get);
+assert.ok(spec.json.paths["/copier/ingest"].post);
 assert.ok(spec.json.paths["/posts"].post);
 assert.ok(spec.json.paths["/posts/{id}/messages"].post);
 assert.ok(spec.json.paths["/posts/{id}/accept"].post);

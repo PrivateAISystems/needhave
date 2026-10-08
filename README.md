@@ -155,7 +155,7 @@ Read-only per-source copier log. Newest first. No secrets. No keys. A non-200 or
       "candidates": 0,
       "would_copy": 0,
       "copied": 0,
-      "skip_reasons": { "throttled": 1, "filter": 0, "duplicate": 0, "cap": 0 }
+      "skip_reasons": { "throttled": 1, "filter": 0, "duplicate": 0, "repeat": 0, "cap": 0 }
     }
   ]
 }
@@ -324,7 +324,7 @@ Streamable HTTP MCP. JSON-RPC initialize, `tools/list`, and `tools/call`. Notifi
 
 ## Scheduled copier
 
-A Worker `scheduled` handler can copy recent public needs onto the list. Off unless `COPIER_ENABLED` is `1` or `true`. Cron: every 30 minutes (`*/30 * * * *`). At most 20 copies per run, 8 per source. Skips items older than 3 days. Insert-only. No invented posts. Copied posts get no post secret. Replies are refused with `{ "error": "copied_post", "source_url": "…" }`.
+A Worker `scheduled` handler can copy recent public needs onto the list. Off unless `COPIER_ENABLED` is `1` or `true`. Cron: every 30 minutes (`*/30 * * * *`). At most 20 copies per run, 8 per source. Skips items older than 3 days. Insert-only. No invented posts. Copied posts get no post secret. Replies are refused with `{ "error": "copied_post", "source_url": "…" }`. The Worker cron fetches Hacker News and GitHub only. Stack Exchange is fetched off the Worker IP (see below) because Cloudflare shared egress gets HTTP 429 with no SE JSON body. Cross-query repeats are an explicit `repeat` skip reason so per-source totals add up.
 
 Each copied note ends with ` from <source url>`. Stack Exchange notes add `(by <author>, CC BY-SA)` after that URL. `source_url` and a normalized-text `note_hash` are stored on the row (`migrations/0001_copied_posts.sql` only). Dedupe is by source URL and that hash. Contact details and emails are stripped. Notes stay under 500 characters. The copier uses its own caps and does not go through the public 10/IP/hour limit.
 
@@ -334,9 +334,9 @@ Each copied note ends with ` from <source url>`. Stack Exchange notes add `(by <
 
 Three official public APIs. No login-walled sites. No HTML scrape.
 
-1. **Hacker News Search API (Algolia)** — `https://hn.algolia.com/api/v1/search_by_date`. Official HN search backend. No key. Separate queries for Ask HN and stories matching `looking for` or `seeking`. Comment searches are not used. Vague titles (`Looking for Help`) and joke titles are dropped; a title must name a concrete object. Item URL: `https://news.ycombinator.com/item?id=…`. Freshness: `created_at_i` inside 3 days. Terms: the API is published for public use ([HN Search API](https://hn.algolia.com/api)). Rate limits are not separately published; treat HTTP 429 as stop.
+1. **Hacker News Search API (Algolia)** — `https://hn.algolia.com/api/v1/search_by_date`. Official HN search backend. No key. Separate queries for Ask HN and stories matching `looking for` or `seeking`. Comment searches are not used. Vague titles (`Looking for Help`) and joke titles are dropped; a title must name a concrete object. Ask HN also accepts invite / recommendation / "is anyone" / "what's your" phrasing so real asks are not dropped with the discussion threads. Item URL: `https://news.ycombinator.com/item?id=…`. Freshness: `created_at_i` inside 3 days. Terms: the API is published for public use ([HN Search API](https://hn.algolia.com/api)). Rate limits are not separately published; treat HTTP 429 as stop.
 
-2. **Stack Exchange API 2.3** — `https://api.stackexchange.com/2.3/search/advanced`. Official API. Title searches over the last 3 days for `how do I`, `how can I`, `is there`, and `looking for`. Closed, duplicate, and negative-score questions are dropped; unanswered questions are copied first. Content is CC BY-SA; the note must name the author and license ([API Terms of Use](https://stackapps.com/legal/api-terms-of-use)). Anonymous shared-IP quota is 300 requests/day; a registered app key raises that to 10,000 ([How API Keys Work](https://stackapps.com/questions/67/how-api-keys-work-faq), [Throttles](https://api.stackexchange.com/docs/throttle)). Also: do not poll the same request more than once a minute; stay under 30 requests/second. Optional `STACKEXCHANGE_KEY` is appended as `key=` on every SE request when set.
+2. **Stack Exchange API 2.3** — `https://api.stackexchange.com/2.3/search/advanced`. Official API. Title searches over the last 3 days for `how do I`, `how can I`, `is there`, and `looking for`. Closed, duplicate, and negative-score questions are dropped; unanswered questions are copied first. Content is CC BY-SA; the note must name the author and license ([API Terms of Use](https://stackapps.com/legal/api-terms-of-use)). Anonymous shared-IP quota is 300 requests/day; a registered app key raises that to 10,000 ([How API Keys Work](https://stackapps.com/questions/67/how-api-keys-work-faq), [Throttles](https://api.stackexchange.com/docs/throttle)). Also: do not poll the same request more than once a minute; stay under 30 requests/second. Optional `STACKEXCHANGE_KEY` is appended as `key=` on every SE request when set. The Worker does not fetch SE on cron. A scheduled GitHub Action (`.github/workflows/copier-se.yml`, cron `15,45 * * * *`) fetches SE from GitHub-hosted runners and `POST`s raw items to `/copier/ingest`.
 
 ### Stack Exchange key (verified from Stack Apps docs)
 
@@ -347,7 +347,29 @@ Cloudflare Worker egress shares IPs, so the anonymous 300/day quota is often exh
 3. On that application, click **Generate API Key**. Store the key; Stack Apps will not display it again.
 4. Send it as a query parameter, not a header: `...&key=…` ([How API Keys Work](https://stackapps.com/questions/67/how-api-keys-work-faq), [API Authentication (2025)](https://stackapps.com/help/api-authentication)).
 5. Quota: **300/day/IP without a key**, **10,000/day/IP with a key**. Apps without an access token still share an IP quota; the key selects the 10,000 bucket ([Throttles](https://api.stackexchange.com/docs/throttle)).
-6. Set it on the Worker (do not commit it). Prefer `npx wrangler secret put STACKEXCHANGE_KEY`. It can also be a Worker var `STACKEXCHANGE_KEY`. The FAQ treats the key as an app quota identifier, not a user secret; the 2025 help still says store the generated key securely.
+6. Set it as a **GitHub Actions repository secret** named `STACKEXCHANGE_KEY` so the Action can use the 10,000/day bucket. A Worker `STACKEXCHANGE_KEY` is unused on cron (SE is not fetched there). The FAQ treats the key as an app quota identifier, not a user secret; the 2025 help still says store the generated key securely.
+
+### Stack Exchange off the Worker IP
+
+Cloudflare Worker egress shares IPs. Live runs returned HTTP 429 on all four SE requests with no SE JSON body. The same API returns HTTP 200 from this development VM and from GitHub-hosted runners. A key does not lift an edge 429.
+
+Chosen path: scheduled GitHub Action (free on this public repo) fetches SE and POSTs raw candidates to `POST /copier/ingest` with `Authorization: Bearer <COPIER_INGEST_SECRET>`. The Worker applies the same SE filter, CC BY-SA credit, caps, dedupe, hidden-post rules, and `copier_runs` logging. Insert-only. Off unless `COPIER_INGEST_SECRET` is set (404). Wrong or missing bearer is 401. The secret is never logged.
+
+Weighed and not chosen:
+
+- Keep fetching SE from the Worker plus `STACKEXCHANGE_KEY` — the 6:00 PM CT run was HTTP 429 at the edge, before any SE JSON or quota fields. A key cannot help.
+- SE RSS — cheaper still, but drops score, closed, unanswered, and author fields the filter and CC BY-SA note need.
+- Another always-on egress (Fly, Render, a small VPS) — works, costs money and another host to watch.
+- Paid Cloudflare egress / Smart Placement — still Cloudflare IPs, more moving parts.
+
+### `POST /copier/ingest`
+
+Authenticated write path. Bearer secret. Stack Exchange `source` only. Body is raw SE `items` plus optional `http_status` / `error` / `backoff` / `quota_remaining` from the Action fetch.
+
+`200` same shape as a copier run (`copied`, `would_copy`, `by_source`, `items`, `sources`).
+`400` `{ "error": "bad_request" | "bad_source" }`
+`401` `{ "error": "unauthorized" }`
+`404` `{ "error": "not_found" }` — secret unset, so the path is off.
 
 ### Reading recent copier runs
 
@@ -363,10 +385,18 @@ Reddit JSON/API is not used. Reddit's current API terms are not a ToS-friendly c
 
 ### Config Rich would set
 
-- `COPIER_ENABLED=1` to turn the cron on
+Worker secrets / vars (do not commit):
+
+- `COPIER_ENABLED=1` to turn the HN/GitHub cron on
 - `COPIER_DRY_RUN=1` to count candidates without inserting
-- `STACKEXCHANGE_KEY` optional; `npx wrangler secret put STACKEXCHANGE_KEY` or a Worker var
-- Apply `migrations/0003_copier_runs.sql` and `migrations/0004_hide_bulk_repos.sql` to live D1 when this is merged (not done here)
+- `COPIER_INGEST_SECRET` — `npx wrangler secret put COPIER_INGEST_SECRET` (16+ characters). Turns on `POST /copier/ingest`. Same value as the GitHub secret.
+
+GitHub Actions repository secrets (Settings → Secrets and variables → Actions):
+
+- `COPIER_INGEST_SECRET` — same bearer the Worker has. Action is a no-op if unset.
+- `STACKEXCHANGE_KEY` — optional; raises the Action's SE quota to 10,000/day/IP.
+
+No new D1 migrations. `copier_runs.skip_reasons` is JSON and now includes `repeat`.
 
 ## Rows
 

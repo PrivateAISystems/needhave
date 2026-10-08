@@ -1,0 +1,26 @@
+name: Copier SE ingest
+
+on:
+  schedule:
+    # Every 30 minutes, offset from the Worker cron at :00 and :30.
+    - cron: "15,45 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Fetch Stack Exchange and POST /copier/ingest
+        env:
+          COPIER_INGEST_SECRET: ${{ secrets.COPIER_INGEST_SECRET }}
+          STACKEXCHANGE_KEY: ${{ secrets.STACKEXCHANGE_KEY }}
+          NEEDHAVE_INGEST_URL: https://needhave.io/copier/ingest
+        run: node scripts/copier-se-ingest.mjs

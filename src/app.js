@@ -1,3 +1,8 @@
+import {
+  authorizationMatches,
+  ingestCopierSource,
+  ingestSecretConfigured,
+} from "./copier.js";
 import { newId, newSecret, sha256Hex } from "./crypto.js";
 import {
   countWaitingFirsts,
@@ -168,6 +173,25 @@ function publicCopierRun(row) {
 async function getCopierRuns(env) {
   const rows = await listCopierRuns(env.DB);
   return json({ runs: rows.map(publicCopierRun) });
+}
+
+async function ingestCopier(env, request) {
+  if (!ingestSecretConfigured(env)) return error("not_found", 404);
+  if (!authorizationMatches(env.COPIER_INGEST_SECRET, request.headers.get("authorization"))) {
+    return error("unauthorized", 401);
+  }
+  const body = await readBody(request);
+  const result = await ingestCopierSource(env, body);
+  if (result.error) return error(result.error, result.status || 400);
+  return json({
+    enabled: result.enabled,
+    dry_run: result.dry_run,
+    copied: result.copied,
+    would_copy: result.would_copy,
+    by_source: result.by_source,
+    items: result.items,
+    sources: result.sources,
+  });
 }
 
 async function getPost(env, postId) {
@@ -399,6 +423,9 @@ export async function handle(request, env) {
   }
   if (parts.length === 2 && parts[0] === "copier" && parts[1] === "runs" && method === "GET") {
     return getCopierRuns(env);
+  }
+  if (parts.length === 2 && parts[0] === "copier" && parts[1] === "ingest" && method === "POST") {
+    return ingestCopier(env, request);
   }
   if (parts.length === 1 && parts[0] === "posts" && method === "GET") {
     return getPosts(env);

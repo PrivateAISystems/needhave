@@ -21,3 +21,14 @@ export function newId() {
 export function newSecret() {
   return randomHex(32);
 }
+
+export function timingSafeEqual(left, right) {
+  const a = String(left || "");
+  const b = String(right || "");
+  const max = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < max; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}

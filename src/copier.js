@@ -1,4 +1,4 @@
-import { newId, newSecret, sha256Hex } from "./crypto.js";
+import { newId, newSecret, sha256Hex, timingSafeEqual } from "./crypto.js";
 import {
   countRepoCopiesSince,
   findPostByNote,
@@ -29,7 +29,7 @@ const ASK_RE = /^(ask hn:|ask:)/i;
 const QUESTION_RE =
   /^(how|what|why|when|where|which|who|is there|are there|can i|can we|does|do you|has anyone|anyone)\b/i;
 const SEEK_RE =
-  /\b(looking for|seeking|need|needed|needs|is there|are there|where can i|how (?:do|can) i|can (?:i|someone|anyone)|does anyone|anyone (?:have|know)|recommend|be my cofounder|in search of|what(?:'s| is) the best)\b/i;
+  /\b(looking for|seeking|need|needed|needs|is there|are there|where can i|how (?:do|can) i|can (?:i|someone|anyone)|could (?:someone|anyone)|does anyone|is anyone|anyone (?:have|know|interested)|recommend|preferred|share (?:a|an)|help me|be my cofounder|in search of|what(?:'s| is) (?:the best|your)|which (?:\w+[ -]+){0,5}(?:can|should|do you|is the best)|publicly available)\b/i;
 const SE_SEEK_RE =
   /\b(looking for|is there|are there|can i|can we|how do i|how can i|how to|does anyone|recommend|where can i|in search of|what(?:'s| is) the best)\b/i;
 const GH_BUSY_RE =
@@ -324,12 +324,13 @@ export function redactCopierUrl(url) {
   return String(url || "").replace(/([?&]key=)[^&]*/gi, "$1redacted");
 }
 
-export function sourceRequests(now, maxAgeMs, env = {}) {
+export function sourceRequests(now, maxAgeMs, env = {}, options = {}) {
   const since = sinceUnix(now, maxAgeMs);
   const sinceDay = sinceIsoDate(now, maxAgeMs);
   const seKey = env.STACKEXCHANGE_KEY ? `&key=${encodeURIComponent(env.STACKEXCHANGE_KEY)}` : "";
   const numeric = encodeURIComponent(`created_at_i>${since}`);
-  return [
+  const skip = new Set(options.skipSources || []);
+  const requests = [
     {
       source: "hn",
       url: `https://hn.algolia.com/api/v1/search_by_date?tags=ask_hn&hitsPerPage=50&numericFilters=${numeric}`,
@@ -356,6 +357,7 @@ export function sourceRequests(now, maxAgeMs, env = {}) {
       parse: parseGithubHits,
     },
   ];
+  return requests.filter((req) => !skip.has(req.source));
 }
 
 function requestHeaders(url) {
@@ -384,8 +386,25 @@ async function readJson(fetchFn, url) {
   }
 }
 
+export const INGEST_MAX_ITEMS = 200;
+export const INGEST_MIN_SECRET_LENGTH = 16;
+
 function emptySkipReasons() {
-  return { throttled: 0, filter: 0, duplicate: 0, cap: 0 };
+  return { throttled: 0, filter: 0, duplicate: 0, repeat: 0, cap: 0 };
+}
+
+export function ingestSecretConfigured(env) {
+  const secret = env && env.COPIER_INGEST_SECRET;
+  return typeof secret === "string" && secret.length >= INGEST_MIN_SECRET_LENGTH;
+}
+
+export function bearerToken(header) {
+  const match = String(header || "").match(/^Bearer\s+(\S+)\s*$/i);
+  return match ? match[1] : "";
+}
+
+export function authorizationMatches(secret, header) {
+  return timingSafeEqual(bearerToken(header), secret);
 }
 
 function emptySourceStat(source) {
@@ -479,98 +498,95 @@ function emptyBySource() {
   return { hn: 0, stackexchange: 0, github: 0 };
 }
 
-/**
- * Pull recent public needs from the allowlisted APIs and insert copies.
- * Off unless COPIER_ENABLED is 1/true. Dry-run reports would-copy counts
- * and does not insert. No live network when fetchFn is injected.
- */
-export async function runCopier(env, options = {}) {
-  if (!enabled(env) && !dryRunEnabled(env, options)) {
-    return {
-      enabled: false,
-      dry_run: false,
-      copied: 0,
-      would_copy: 0,
-      by_source: emptyBySource(),
-      items: [],
-      sources: [],
-    };
-  }
+function recordSkipped(options, item, reason) {
+  if (!options || !Array.isArray(options.skipped)) return;
+  options.skipped.push({
+    source: item.source,
+    reason,
+    kind: item.kind || null,
+    text: flattenText(item.text).slice(0, 200),
+    source_url: item.source_url,
+  });
+}
 
-  const now = nowMs(env, options);
-  const maxAge = intEnv(env, "COPIER_MAX_AGE_MS", COPIER_MAX_AGE_MS);
-  const maxRun = intEnv(env, "COPIER_MAX_PER_RUN", COPIER_MAX_PER_RUN);
-  const maxSource = intEnv(env, "COPIER_MAX_PER_SOURCE", COPIER_MAX_PER_SOURCE);
-  const maxRepo = intEnv(env, "COPIER_MAX_PER_REPO", COPIER_MAX_PER_REPO);
-  const maxRepoDay = intEnv(env, "COPIER_MAX_PER_REPO_DAY", COPIER_MAX_PER_REPO_DAY);
-  const fetchFn = options.fetchFn || globalThis.fetch;
-  const dryRun = dryRunEnabled(env, options);
-  const perSource = emptyBySource();
-  const perRepo = new Map();
-  const seen = new Set();
-  const seenHashes = new Set();
-  const items = [];
-  const stats = {
-    hn: emptySourceStat("hn"),
-    stackexchange: emptySourceStat("stackexchange"),
-    github: emptySourceStat("github"),
-  };
-  let copied = 0;
-
-  for (const req of sourceRequests(now, maxAge, env)) {
-    const fetched = await readJson(fetchFn, req.url);
-    const stat = stats[req.source] || emptySourceStat(req.source);
-    stats[req.source] = stat;
-    recordFetch(stat, fetched);
-    const found =
-      fetched.ok && fetched.body && !fetched.body.error_id ? req.parse(fetched.body, now, maxAge) : [];
-    stat.candidates += found.length;
-    for (const item of found) {
-      if (seen.has(item.source_url)) continue;
-      seen.add(item.source_url);
-      if (copied >= maxRun) {
+async function copyFoundItems(env, found, ctx) {
+  const {
+    now,
+    dryRun,
+    maxRun,
+    maxSource,
+    maxRepo,
+    maxRepoDay,
+    stats,
+    perSource,
+    perRepo,
+    seen,
+    seenHashes,
+    items,
+    options,
+  } = ctx;
+  let copied = ctx.copied;
+  for (const item of found) {
+    const stat = stats[item.source] || emptySourceStat(item.source);
+    stats[item.source] = stat;
+    if (seen.has(item.source_url)) {
+      stat.skip_reasons.repeat += 1;
+      recordSkipped(options, item, "repeat");
+      continue;
+    }
+    seen.add(item.source_url);
+    if (copied >= maxRun) {
+      stat.skip_reasons.cap += 1;
+      recordSkipped(options, item, "cap");
+      continue;
+    }
+    const used = perSource[item.source] || 0;
+    if (used >= maxSource) {
+      stat.skip_reasons.cap += 1;
+      recordSkipped(options, item, "cap");
+      continue;
+    }
+    if (item.source === "github" && item.repo) {
+      const usedRepo = perRepo.get(item.repo) || 0;
+      if (usedRepo >= maxRepo) {
         stat.skip_reasons.cap += 1;
+        recordSkipped(options, item, "cap");
         continue;
       }
-      const used = perSource[item.source] || 0;
-      if (used >= maxSource) {
+      const dayCount = await countRepoCopiesSince(env.DB, item.repo, now - COPIER_REPO_DAY_MS);
+      if (dayCount >= maxRepoDay) {
         stat.skip_reasons.cap += 1;
+        recordSkipped(options, item, "cap");
         continue;
-      }
-      if (item.source === "github" && item.repo) {
-        const usedRepo = perRepo.get(item.repo) || 0;
-        if (usedRepo >= maxRepo) {
-          stat.skip_reasons.cap += 1;
-          continue;
-        }
-        const dayCount = await countRepoCopiesSince(env.DB, item.repo, now - COPIER_REPO_DAY_MS);
-        if (dayCount >= maxRepoDay) {
-          stat.skip_reasons.cap += 1;
-          continue;
-        }
-      }
-      const result = await insertCopy(env, item, now, dryRun, seenHashes);
-      if (result.status === "copied") {
-        copied += 1;
-        stat.would_copy += 1;
-        stat.copied += dryRun ? 0 : 1;
-        perSource[item.source] = used + 1;
-        if (item.source === "github" && item.repo) {
-          perRepo.set(item.repo, (perRepo.get(item.repo) || 0) + 1);
-        }
-        items.push({
-          source: result.source,
-          source_url: result.source_url,
-          note: result.note,
-        });
-      } else if (result.status === "duplicate") {
-        stat.skip_reasons.duplicate += 1;
-      } else {
-        stat.skip_reasons.filter += 1;
       }
     }
+    const result = await insertCopy(env, item, now, dryRun, seenHashes);
+    if (result.status === "copied") {
+      copied += 1;
+      stat.would_copy += 1;
+      stat.copied += dryRun ? 0 : 1;
+      perSource[item.source] = used + 1;
+      if (item.source === "github" && item.repo) {
+        perRepo.set(item.repo, (perRepo.get(item.repo) || 0) + 1);
+      }
+      items.push({
+        source: result.source,
+        source_url: result.source_url,
+        note: result.note,
+      });
+    } else if (result.status === "duplicate") {
+      stat.skip_reasons.duplicate += 1;
+      recordSkipped(options, item, "duplicate");
+    } else {
+      stat.skip_reasons.filter += 1;
+      recordSkipped(options, item, "filter");
+    }
   }
+  ctx.copied = copied;
+  return copied;
+}
 
+async function persistSourceStats(env, stats, now, dryRun) {
   const sources = publicSourceStats(stats);
   logCopierRun(stats);
   for (const stat of sources) {
@@ -589,8 +605,117 @@ export async function runCopier(env, options = {}) {
       skip_reasons: JSON.stringify(stat.skip_reasons),
     });
   }
+  return sources;
+}
 
-  return resultShape({ enabled: true, dryRun, copied, items, perSource, sources });
+function copyContext(env, options) {
+  const now = nowMs(env, options);
+  return {
+    now,
+    maxAge: intEnv(env, "COPIER_MAX_AGE_MS", COPIER_MAX_AGE_MS),
+    maxRun: intEnv(env, "COPIER_MAX_PER_RUN", COPIER_MAX_PER_RUN),
+    maxSource: intEnv(env, "COPIER_MAX_PER_SOURCE", COPIER_MAX_PER_SOURCE),
+    maxRepo: intEnv(env, "COPIER_MAX_PER_REPO", COPIER_MAX_PER_REPO),
+    maxRepoDay: intEnv(env, "COPIER_MAX_PER_REPO_DAY", COPIER_MAX_PER_REPO_DAY),
+    dryRun: dryRunEnabled(env, options),
+    perSource: emptyBySource(),
+    perRepo: new Map(),
+    seen: new Set(),
+    seenHashes: new Set(),
+    items: [],
+    stats: {},
+    copied: 0,
+    options,
+  };
+}
+
+/**
+ * Pull recent public needs from the allowlisted APIs and insert copies.
+ * Off unless COPIER_ENABLED is 1/true. Dry-run reports would-copy counts
+ * and does not insert. No live network when fetchFn is injected.
+ * Worker cron skips Stack Exchange (Cloudflare shared egress gets HTTP 429);
+ * SE arrives via POST /copier/ingest instead.
+ */
+export async function runCopier(env, options = {}) {
+  if (!enabled(env) && !dryRunEnabled(env, options)) {
+    return {
+      enabled: false,
+      dry_run: false,
+      copied: 0,
+      would_copy: 0,
+      by_source: emptyBySource(),
+      items: [],
+      sources: [],
+    };
+  }
+
+  const ctx = copyContext(env, options);
+  const fetchFn = options.fetchFn || globalThis.fetch;
+
+  for (const req of sourceRequests(ctx.now, ctx.maxAge, env, options)) {
+    const fetched = await readJson(fetchFn, req.url);
+    const stat = ctx.stats[req.source] || emptySourceStat(req.source);
+    ctx.stats[req.source] = stat;
+    recordFetch(stat, fetched);
+    const found =
+      fetched.ok && fetched.body && !fetched.body.error_id ? req.parse(fetched.body, ctx.now, ctx.maxAge) : [];
+    stat.candidates += found.length;
+    await copyFoundItems(env, found, ctx);
+  }
+
+  const sources = await persistSourceStats(env, ctx.stats, ctx.now, ctx.dryRun);
+  return resultShape({
+    enabled: true,
+    dryRun: ctx.dryRun,
+    copied: ctx.copied,
+    items: ctx.items,
+    perSource: ctx.perSource,
+    sources,
+  });
+}
+
+/**
+ * Insert-only Stack Exchange ingest. Off unless COPIER_INGEST_SECRET is set
+ * (checked by the HTTP handler). Same filter, CC BY-SA credit, caps, dedupe,
+ * and copier_runs logging as the Worker fetch path. No secrets in logs.
+ */
+export async function ingestCopierSource(env, body, options = {}) {
+  if (!body || typeof body !== "object") {
+    return { error: "bad_request", status: 400 };
+  }
+  if (body.source !== "stackexchange") {
+    return { error: "bad_source", status: 400 };
+  }
+  if (!Array.isArray(body.items) || body.items.length > INGEST_MAX_ITEMS) {
+    return { error: "bad_request", status: 400 };
+  }
+
+  const ctx = copyContext(env, options);
+  const stat = emptySourceStat("stackexchange");
+  ctx.stats.stackexchange = stat;
+  if (Number.isFinite(body.http_status)) stat.http_status = body.http_status;
+  else stat.http_status = 200;
+  if (Number.isFinite(body.backoff)) stat.backoff = body.backoff;
+  if (Number.isFinite(body.quota_remaining)) stat.quota_remaining = body.quota_remaining;
+  if (typeof body.error === "string" && body.error) stat.error = body.error;
+  if (stat.http_status >= 400 || stat.error) {
+    stat.skip_reasons.throttled += 1;
+    if (!stat.error) stat.error = `http_${stat.http_status}`;
+  }
+
+  const found = parseStackHits({ items: body.items }, ctx.now, ctx.maxAge);
+  stat.candidates += found.length;
+  await copyFoundItems(env, found, ctx);
+
+  const sources = await persistSourceStats(env, ctx.stats, ctx.now, ctx.dryRun);
+  return resultShape({
+    enabled: true,
+    dryRun: ctx.dryRun,
+    copied: ctx.copied,
+    items: ctx.items,
+    perSource: ctx.perSource,
+    sources,
+  });
 }
 
 function resultShape({ enabled, dryRun, copied, items, perSource, sources }) {
