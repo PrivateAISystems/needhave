@@ -78,6 +78,52 @@ export const openapi = {
         },
       },
     },
+    "/copier/ingest": {
+      post: {
+        summary: "Ingest Stack Exchange candidates",
+        description:
+          "Authenticated write path for Stack Exchange copies fetched off the Worker IP. Bearer COPIER_INGEST_SECRET. Off unless that secret is set. Same filter, attribution, caps, and insert-only rules as the scheduled copier. No secrets in the response.",
+        security: [{ ingestBearer: [] }],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["source", "items"],
+            properties: {
+              source: { type: "string", enum: ["stackexchange"] },
+              items: { type: "array", items: { type: "object" } },
+              http_status: { type: ["integer", "null"] },
+              error: { type: ["string", "null"] },
+              backoff: { type: ["integer", "null"] },
+              quota_remaining: { type: ["integer", "null"] },
+            },
+            additionalProperties: false,
+          }),
+        },
+        responses: {
+          200: jsonResponse("Ingest result", {
+            type: "object",
+            required: ["enabled", "dry_run", "copied", "would_copy", "by_source", "items", "sources"],
+            properties: {
+              enabled: { type: "boolean" },
+              dry_run: { type: "boolean" },
+              copied: { type: "integer" },
+              would_copy: { type: "integer" },
+              by_source: { type: "object" },
+              items: { type: "array" },
+              sources: {
+                type: "array",
+                items: { $ref: "#/components/schemas/CopierRun" },
+              },
+            },
+            additionalProperties: false,
+          }),
+          400: errorResponse("bad_request or bad_source"),
+          401: errorResponse("unauthorized"),
+          404: errorResponse("not_found"),
+        },
+      },
+    },
     "/posts": {
       get: {
         summary: "List posts",
@@ -340,6 +386,13 @@ export const openapi = {
     },
   },
   components: {
+    securitySchemes: {
+      ingestBearer: {
+        type: "http",
+        scheme: "bearer",
+        description: "COPIER_INGEST_SECRET. Off unless set. Never logged.",
+      },
+    },
     schemas: {
       Error: error,
       PublicPost: publicPost,

@@ -7,6 +7,7 @@ import {
   buildCopiedNote,
   bulkReposFromIssues,
   hasConcreteObject,
+  ingestCopierSource,
   isAskNeed,
   isCommentNeed,
   isGithubJunk,
@@ -45,10 +46,13 @@ function env(extra = {}) {
   return createLocalEnv(loadLocalSql(root), extra);
 }
 
-async function call(environment, method, path, body) {
+async function call(environment, method, path, body, extraHeaders = {}) {
   const request = new Request(`http://needhave.local${path}`, {
     method,
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: {
+      ...(body ? { "content-type": "application/json" } : {}),
+      ...extraHeaders,
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const response = await handle(request, environment);
@@ -149,6 +153,33 @@ assert.equal(notes.some((note) => note.includes("Looking for Help")), false);
 assert.equal(notes.some((note) => note.includes("curry from the moon")), false);
 assert.equal(notes.some((note) => note.includes("soro-mutants")), false);
 assert.equal(notes.filter((note) => note.includes("example/one-repo")).length, 2);
+const hnStat = first.sources.find((row) => row.source === "hn");
+assert.ok(hnStat);
+assert.equal(hnStat.candidates, 27);
+assert.equal(hnStat.would_copy, 3);
+assert.equal(hnStat.skip_reasons.repeat, 18);
+assert.equal(hnStat.skip_reasons.filter, 5);
+assert.equal(hnStat.skip_reasons.duplicate, 1);
+assert.equal(
+  hnStat.would_copy +
+    hnStat.skip_reasons.filter +
+    hnStat.skip_reasons.duplicate +
+    hnStat.skip_reasons.repeat +
+    hnStat.skip_reasons.cap,
+  hnStat.candidates,
+);
+const seStat = first.sources.find((row) => row.source === "stackexchange");
+assert.equal(seStat.candidates, 12);
+assert.equal(seStat.would_copy, 3);
+assert.equal(seStat.skip_reasons.repeat, 9);
+assert.equal(
+  seStat.would_copy +
+    seStat.skip_reasons.filter +
+    seStat.skip_reasons.duplicate +
+    seStat.skip_reasons.repeat +
+    seStat.skip_reasons.cap,
+  seStat.candidates,
+);
 ok("copies recent real needs and skips hiring, old, junk, and pull requests");
 
 const listed = await call(on, "GET", "/posts");
@@ -360,6 +391,17 @@ assert.equal(isSeNeed("Why does TypeScript fail to infer a callback parameter?")
 assert.equal(isAskNeed("Ask HN: How do I find a technical cofounder in Chicago?"), true);
 assert.equal(isAskNeed("Ask HN: I quit my job today"), false);
 assert.equal(isAskNeed("Ask HN: Are we losing control of AI?"), false);
+assert.equal(isAskNeed("Ask HN: Could someone share a lobste.rs invite?"), true);
+assert.equal(isAskNeed("Ask HN: Preferred state management for enterprise Flutter in 2026?"), true);
+assert.equal(isAskNeed("Ask HN: Is anyone still working on dLLMs"), true);
+assert.equal(isAskNeed("Ask HN: Got a Mac for running agents? what's your setup?"), true);
+assert.equal(isAskNeed("Ask HN: Which frontier model can do code security reviews"), true);
+assert.equal(isAskNeed("Ask HN: Is the xcancel source code publicly available?"), true);
+assert.equal(isAskNeed("Anyone Interested in Prediction Markets"), true);
+assert.equal(isAskNeed("Ask HN: What happened with quantum computers anyway?"), false);
+assert.equal(hasConcreteObject("Ask HN: Could someone share a lobste.rs invite?"), true);
+assert.equal(hasConcreteObject("Looking for Help"), false);
+assert.equal(hasConcreteObject("Be my cofounder (curry from the moon)"), false);
 assert.equal(isCommentNeed("Looking for a Rust mentor"), false);
 assert.equal(
   isCommentNeed(
@@ -512,5 +554,178 @@ ok("throttled SE is an explicit status, logged, and listed without secrets");
 const copierSource = readFileSync(join(root, "src/copier.js"), "utf8");
 assert.match(copierSource, /console\.log\(JSON\.stringify\(\{ copier_run:/);
 ok("copier logs structured run status and does not log secrets");
+
+let seFetches = 0;
+const skipSe = env({ COPIER_ENABLED: "1" });
+const skippedSe = await runCopier(skipSe, {
+  now: NOW,
+  skipSources: ["stackexchange"],
+  fetchFn: async (input) => {
+    const url = String(input);
+    if (url.startsWith("https://api.stackexchange.com/")) {
+      seFetches += 1;
+      throw new Error("SE must not be fetched from the Worker cron");
+    }
+    return fixtureFetch({ hn: { hits: [] }, stackexchange: { items: [] }, github: { items: [] } })(url);
+  },
+});
+assert.equal(seFetches, 0);
+assert.equal(skippedSe.sources.some((row) => row.source === "stackexchange"), false);
+ok("Worker cron skipSources omits Stack Exchange fetches");
+
+const edge429 = env({ COPIER_ENABLED: "1" });
+const edgeRun = await runCopier(edge429, {
+  now: NOW,
+  fetchFn: async (input) => {
+    const url = String(input);
+    if (url.startsWith("https://api.stackexchange.com/")) {
+      return new Response("", { status: 429 });
+    }
+    return fixtureFetch({ hn: { hits: [] }, stackexchange: { items: [] }, github: { items: [] } })(url);
+  },
+});
+const edgeSe = edgeRun.sources.find((row) => row.source === "stackexchange");
+assert.equal(edgeSe.http_status, 429);
+assert.equal(edgeSe.error, "http_429");
+assert.equal(edgeSe.candidates, 0);
+assert.ok(edgeSe.skip_reasons.throttled >= 1);
+ok("empty-body SE 429 is an explicit status, not a silent zero");
+
+const ingestSecret = "c".repeat(32);
+const ingestOff = env();
+const ingestMissing = await call(ingestOff, "POST", "/copier/ingest", {
+  source: "stackexchange",
+  items: stack.items,
+});
+assert.equal(ingestMissing.status, 404);
+assert.equal(ingestMissing.json.error, "not_found");
+ok("ingest is off unless COPIER_INGEST_SECRET is set");
+
+const ingestEnv = env({ COPIER_INGEST_SECRET: ingestSecret });
+const noBearer = await call(ingestEnv, "POST", "/copier/ingest", {
+  source: "stackexchange",
+  items: stack.items,
+});
+assert.equal(noBearer.status, 401);
+assert.equal(noBearer.json.error, "unauthorized");
+const wrongBearer = await call(
+  ingestEnv,
+  "POST",
+  "/copier/ingest",
+  { source: "stackexchange", items: stack.items },
+  { authorization: "Bearer wrong-secret-value-here" },
+);
+assert.equal(wrongBearer.status, 401);
+const badSource = await call(
+  ingestEnv,
+  "POST",
+  "/copier/ingest",
+  { source: "hn", items: [] },
+  { authorization: `Bearer ${ingestSecret}` },
+);
+assert.equal(badSource.status, 400);
+assert.equal(badSource.json.error, "bad_source");
+const ingestLogs = [];
+const ingestLog = console.log;
+console.log = (...args) => {
+  ingestLogs.push(args.map(String).join(" "));
+};
+let ingested;
+try {
+  ingested = await call(
+    ingestEnv,
+    "POST",
+    "/copier/ingest",
+    { source: "stackexchange", items: stack.items, http_status: 200, quota_remaining: 9800 },
+    { authorization: `Bearer ${ingestSecret}` },
+  );
+} finally {
+  console.log = ingestLog;
+}
+assert.equal(ingested.status, 200);
+assert.equal(ingested.json.copied, 3);
+assert.equal(ingested.json.would_copy, 3);
+assert.equal(ingested.json.by_source.stackexchange, 3);
+assert.equal(ingested.json.dry_run, false);
+assert.match(ingested.json.items[0].note, / \(by .+?, CC BY-SA\)$/);
+assert.equal(ingestLogs.join("\n").includes(ingestSecret), false);
+assert.equal((await call(ingestEnv, "GET", "/posts")).json.posts.length, 3);
+const ingestRuns = await call(ingestEnv, "GET", "/copier/runs");
+const ingestSe = ingestRuns.json.runs.find((row) => row.source === "stackexchange");
+assert.equal(ingestSe.copied, 3);
+assert.equal(ingestSe.quota_remaining, 9800);
+assert.equal(JSON.stringify(ingestRuns.json).includes(ingestSecret), false);
+ok("ingest copies SE with the same filter and attribution and never logs the secret");
+
+const ingestDry = env({ COPIER_INGEST_SECRET: ingestSecret, COPIER_DRY_RUN: "1" });
+const dryIngest = await call(
+  ingestDry,
+  "POST",
+  "/copier/ingest",
+  { source: "stackexchange", items: stack.items },
+  { authorization: `Bearer ${ingestSecret}` },
+);
+assert.equal(dryIngest.status, 200);
+assert.equal(dryIngest.json.copied, 0);
+assert.equal(dryIngest.json.would_copy, 3);
+assert.equal((await call(ingestDry, "GET", "/posts")).json.posts.length, 0);
+ok("ingest dry-run reports would-copy and does not insert");
+
+const inviteEnv = env({ COPIER_ENABLED: "1" });
+const inviteRun = await runCopier(inviteEnv, {
+  now: NOW,
+  fetchFn: fixtureFetch({
+    hn: {
+      hits: [
+        {
+          objectID: "130",
+          title: "Ask HN: Could someone share a lobste.rs invite?",
+          created_at_i: 1791414000,
+          _tags: ["story", "ask_hn"],
+        },
+        {
+          objectID: "49968927",
+          title: "Looking for Help",
+          created_at_i: 1791414000,
+          _tags: ["story"],
+        },
+        {
+          objectID: "50003240",
+          title: "Be my cofounder (curry from the moon)",
+          created_at_i: 1791414000,
+          _tags: ["story"],
+        },
+        {
+          objectID: "50007416",
+          comment_text: "Very cool! Yes, I was looking for the SOTA models.",
+          created_at_i: 1791414000,
+          _tags: ["comment"],
+          story_id: 115,
+        },
+        {
+          objectID: "50006926",
+          comment_text: "I am seeking answers I haven't been able to find.",
+          created_at_i: 1791414000,
+          _tags: ["comment"],
+          story_id: 115,
+        },
+      ],
+    },
+    stackexchange: { items: [] },
+    github: { items: [] },
+  }),
+});
+assert.equal(inviteRun.copied, 1);
+assert.equal(inviteRun.items[0].source_url.includes("item?id=130"), true);
+assert.equal(inviteRun.items.some((item) => item.source_url.includes("49968927")), false);
+assert.equal(inviteRun.items.some((item) => item.source_url.includes("50003240")), false);
+assert.equal(inviteRun.items.some((item) => item.source_url.includes("50007416")), false);
+assert.equal(inviteRun.items.some((item) => item.source_url.includes("50006926")), false);
+ok("loosened Ask HN keeps known junk out");
+
+assert.equal(typeof ingestCopierSource, "function");
+const workerSource = readFileSync(join(root, "src/worker.js"), "utf8");
+assert.match(workerSource, /skipSources:\s*\[\s*"stackexchange"\s*\]/);
+ok("scheduled Worker skips Stack Exchange");
 
 console.log("all copier calls passed");

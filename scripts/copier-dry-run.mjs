@@ -26,17 +26,25 @@ const env = createLocalEnv(loadLocalSql(root), {
     : {}),
 });
 
-const result = await runCopier(env, { dryRun: true, now: Date.now() });
+const skipped = [];
+const result = await runCopier(env, { dryRun: true, now: Date.now(), skipped });
+const hnFiltered = skipped.filter((row) => row.source === "hn" && row.reason === "filter");
 const report = {
   hours,
   uncapped,
   would_copy: result.would_copy,
   copied: result.copied,
   by_source: result.by_source,
+  sources: result.sources,
   items: result.items.map((item) => ({
     source: item.source,
     source_url: item.source_url,
     note: item.note,
+  })),
+  hn_filtered_sample: hnFiltered.slice(0, 20).map((row) => ({
+    kind: row.kind,
+    text: row.text,
+    source_url: row.source_url,
   })),
 };
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

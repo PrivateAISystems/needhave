@@ -14,7 +14,7 @@ export default {
     return handle(request, env);
   },
   async scheduled(_controller, env, ctx) {
-    const run = runCopier(env);
+    const run = runCopier(env, { skipSources: ["stackexchange"] });
     if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
     return run;
   },
