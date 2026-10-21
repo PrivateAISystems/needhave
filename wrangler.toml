@@ -1,0 +1,20 @@
+name = "needhave"
+main = "src/worker.js"
+compatibility_date = "2026-10-04"
+
+# One D1 database. This file names the binding so two people wire the same Worker.
+# database_id is a local placeholder. This repo does not create or deploy a remote D1.
+[[d1_databases]]
+binding = "DB"
+database_name = "needhave"
+database_id = "local-only-not-deployed"
+migrations_dir = "migrations"
+
+# Copier stays off. COPIER_ENABLED=1 needs a new reviewed plan and owner approval. Do not put secrets here.
+# Optional: STACKEXCHANGE_KEY for a higher Stack Exchange quota (local / Action).
+# Prefer `npx wrangler secret put STACKEXCHANGE_KEY`. Do not put the key here.
+# POST /copier/ingest is off unless COPIER_INGEST_SECRET is set:
+#   npx wrangler secret put COPIER_INGEST_SECRET
+# The Worker cron skips Stack Exchange; a GitHub Action posts SE candidates.
+[triggers]
+crons = []
